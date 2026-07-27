@@ -1,0 +1,12 @@
+[submodule "isaac_ros/isaac_ros_common"]
+	path = isaac_ros/isaac_ros_common
+	url = https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common.git
+[submodule "isaac_ros/isaac_ros_apriltag"]
+	path = isaac_ros/isaac_ros_apriltag
+	url = https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_apriltag.git
+[submodule "isaac_ros/isaac_ros_nitros"]
+	path = isaac_ros/isaac_ros_nitros
+	url = https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_nitros.git
+[submodule "isaac_ros/isaac_ros_image_pipeline"]
+	path = isaac_ros/isaac_ros_image_pipeline
+	url = https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_image_pipeline.git
