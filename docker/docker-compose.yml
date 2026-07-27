@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  jetson-stack:
+
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+
+    container_name: jetson-stack
+
+    network_mode: host
+
+    privileged: true
+
+    runtime: nvidia
+
+    stdin_open: true
+    tty: true
+
+    volumes:
+      - ../workspace:/workspaces/jetson-stack
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /dev:/dev
+
+    environment:
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
