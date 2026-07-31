@@ -1,50 +1,64 @@
-version: "3.8"
+# ──────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — Multi-Camera Tracking + gsplat Rendering Stack
+#
+# Usage:
+#   docker compose build
+#   docker compose up
+#
+# Host prerequisites:
+#   - NVIDIA Container Toolkit installed
+#   - NVIDIA driver ≥ 535 (for CUDA 12.2)
+#   - ./data/ folder containing:
+#       camera_calibration.yaml   (per-camera K, R, t)
+#       model.ckpt                (trained gsplat checkpoint)
+# ──────────────────────────────────────────────────────────────────────────────
 
 services:
-  jetson-stack:
-
+  gsplat_stack:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile
 
-    container_name: jetson-stack
+    # ── GPU access via NVIDIA Container Toolkit ──────────────────────────────
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      # ROS 2 DDS configuration
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      # Shared-memory transport for CycloneDDS
+      - CYCLONEDDS_URI=<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo"/></Interfaces></General><SharedMemory><Enable>true</Enable></SharedMemory></Domain></CycloneDDS>
+      # gsplat JIT cache
+      - GSPLAT_BUILD_DIR=/tmp/gsplat_build
 
+    # ── Host network for zero-overhead DDS multicast discovery ───────────────
     network_mode: host
+
+    # ── Host IPC namespace for ROS 2 shared-memory zero-copy transport ───────
     ipc: host
 
-    privileged: true
-
-    runtime: nvidia
-
-    stdin_open: true
-    tty: true
-
-    environment:
-      DISPLAY: ${DISPLAY}
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: all
-
+    # ── Mount host data directory for calibration + model files ──────────────
     volumes:
+      - ./data:/workspace/data:ro
 
-      # Workspace
-      - ./workspace:/workspaces/jetson-stack
+    # ── Launch the full pipeline ─────────────────────────────────────────────
+    command: >
+      ros2 launch gsplat_tracker full_pipeline.launch.py
+        calibration_file:=/workspace/data/camera_calibration.yaml
+        model_checkpoint:=/workspace/data/model.ckpt
+        tag_size:=0.25
+        render_width:=1280
+        render_height:=720
 
-      # Config
-      - ./config:/config
+    # ── Resource constraints ─────────────────────────────────────────────────
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
-      # Launch files
-      - ./launch:/launch
-
-      # Scripts
-      - ./scripts:/scripts
-
-      # USB devices (FLIR)
-      - /dev:/dev
-      - /dev/bus/usb:/dev/bus/usb
-
-      # X11 (RViz/Foxglove if needed)
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
-
-    working_dir: /workspaces/jetson-stack
-
-    command: bash
+    # ── Restart policy ───────────────────────────────────────────────────────
+    restart: unless-stopped

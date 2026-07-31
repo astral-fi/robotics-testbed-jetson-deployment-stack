@@ -1,0 +1,56 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Example camera calibration file
+# Mount your actual calibration at /workspace/data/camera_calibration.yaml
+#
+# Each camera requires:
+#   K  : 3×3 intrinsic matrix (row-major flat list)
+#   R  : 3×3 rotation matrix   (world → camera, row-major)
+#   t  : 3×1 translation vector (world → camera)
+#   frame_id: TF frame name for this camera
+#
+# Coordinate convention: OpenCV (X-right, Y-down, Z-forward)
+# ──────────────────────────────────────────────────────────────────────────────
+
+cameras:
+  cam0:
+    frame_id: "cam0_optical"
+    # Intrinsic matrix K [fx, 0, cx, 0, fy, cy, 0, 0, 1]
+    K: [800.0, 0.0, 640.0,
+        0.0, 800.0, 360.0,
+        0.0, 0.0, 1.0]
+    # Rotation (world → camera)
+    R: [1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0]
+    # Translation (world → camera)
+    t: [0.0, 0.0, 0.0]
+
+  cam1:
+    frame_id: "cam1_optical"
+    K: [800.0, 0.0, 640.0,
+        0.0, 800.0, 360.0,
+        0.0, 0.0, 1.0]
+    R: [0.0, 0.0, 1.0,
+        0.0, 1.0, 0.0,
+       -1.0, 0.0, 0.0]
+    t: [2.0, 0.0, 0.0]
+
+  cam2:
+    frame_id: "cam2_optical"
+    K: [800.0, 0.0, 640.0,
+        0.0, 800.0, 360.0,
+        0.0, 0.0, 1.0]
+    R: [-1.0, 0.0, 0.0,
+         0.0, 1.0, 0.0,
+         0.0, 0.0,-1.0]
+    t: [2.0, 0.0, 2.0]
+
+  cam3:
+    frame_id: "cam3_optical"
+    K: [800.0, 0.0, 640.0,
+        0.0, 800.0, 360.0,
+        0.0, 0.0, 1.0]
+    R: [ 0.0, 0.0,-1.0,
+         0.0, 1.0, 0.0,
+         1.0, 0.0, 0.0]
+    t: [0.0, 0.0, 2.0]
