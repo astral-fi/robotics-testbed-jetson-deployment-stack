@@ -27,8 +27,9 @@ services:
       # ROS 2 DDS configuration
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-      # Shared-memory transport for CycloneDDS
-      - CYCLONEDDS_URI=<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo"/></Interfaces></General><SharedMemory><Enable>true</Enable></SharedMemory></Domain></CycloneDDS>
+      # CycloneDDS config: use loopback for intra-container comms
+      # (SharedMemory removed — requires iceoryx RouDi daemon which adds complexity)
+      - CYCLONEDDS_URI=<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo"/></Interfaces></General></Domain></CycloneDDS>
       # gsplat JIT cache
       - GSPLAT_BUILD_DIR=/tmp/gsplat_build
 
