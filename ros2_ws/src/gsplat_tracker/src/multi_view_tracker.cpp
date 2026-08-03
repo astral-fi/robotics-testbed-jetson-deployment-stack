@@ -72,10 +72,10 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
   sub_opts.callback_group = cb_group_;
 
   const std::array<std::string, NUM_CAMERAS> topics = {
-    "/cam0/tag_detections",
-    "/cam1/tag_detections",
-    "/cam2/tag_detections",
-    "/cam3/tag_detections"
+    "/cam_25251947/tag_detections",
+    "/cam_25251937/tag_detections",
+    "/cam_25251925/tag_detections",
+    "/cam_25251936/tag_detections"
   };
 
   for (int i = 0; i < NUM_CAMERAS; ++i) {

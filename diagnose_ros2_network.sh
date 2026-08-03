@@ -100,8 +100,8 @@ else
 
     # Check specifically for the AprilTag topics we need
     echo -e "  ${CYAN}Checking expected AprilTag topics:${NC}"
-    for i in 0 1 2 3; do
-        TOPIC="/cam${i}/tag_detections"
+    for CAM_ID in 25251947 25251937 25251925 25251936; do
+        TOPIC="/cam_${CAM_ID}/tag_detections"
         if echo "$TOPICS" | grep -q "$TOPIC"; then
             echo -e "    ${GREEN}✓ $TOPIC${NC}"
         else
@@ -125,8 +125,8 @@ echo ""
 # ── 7. Live data check on AprilTag topics ───────────────────────────────────
 echo -e "${YELLOW}[7/7] Live Data Check (2 second sample per topic)${NC}"
 ANY_DATA=false
-for i in 0 1 2 3; do
-    TOPIC="/cam${i}/tag_detections"
+for CAM_ID in 25251947 25251937 25251925 25251936; do
+    TOPIC="/cam_${CAM_ID}/tag_detections"
     # Try to get one message with a 2-second timeout
     MSG=$(timeout 2 ros2 topic echo "$TOPIC" --once 2>/dev/null || echo "NO_DATA")
     if [ "$MSG" != "NO_DATA" ] && [ -n "$MSG" ]; then
