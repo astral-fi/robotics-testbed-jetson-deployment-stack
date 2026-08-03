@@ -26,10 +26,10 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
       # ROS 2 DDS configuration
       - ROS_DOMAIN_ID=0
-      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-      # CycloneDDS config: use loopback for intra-container comms
-      # (SharedMemory removed — requires iceoryx RouDi daemon which adds complexity)
-      - CYCLONEDDS_URI=<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo"/></Interfaces></General></Domain></CycloneDDS>
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      # FastDDS: matches Jetson Isaac ROS container (rmw_fastrtps_cpp)
+      # Uses Simple Discovery Protocol (SDP) with multicast by default
+      # For unicast-only (more reliable over Wi-Fi), set FASTRTPS_DEFAULT_PROFILES_FILE
       # gsplat JIT cache
       - GSPLAT_BUILD_DIR=/tmp/gsplat_build
 

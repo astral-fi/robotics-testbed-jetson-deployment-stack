@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-humble-ffmpeg-image-transport \
         ros-humble-cv-bridge \
         ros-humble-apriltag-msgs \
-        ros-humble-rmw-cyclonedds-cpp \
+        ros-humble-rmw-fastrtps-cpp \
         python3-colcon-common-extensions \
         python3-rosdep \
     && rm -rf /var/lib/apt/lists/*
@@ -83,7 +83,7 @@ FROM base AS runtime
 COPY --from=builder /ros2_ws/install /ros2_ws/install
 
 # ── Environment for runtime ─────────────────────────────────────────────────
-ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 # Ensure gsplat CUDA kernels are cached inside the container
 ENV GSPLAT_BUILD_DIR=/tmp/gsplat_build
 
