@@ -16,7 +16,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(apriltag_msgs REQUIRED)
+find_package(isaac_ros_apriltag_interfaces REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -44,7 +44,7 @@ ament_target_dependencies(multi_view_tracker
   rclcpp
   geometry_msgs
   sensor_msgs
-  apriltag_msgs
+  isaac_ros_apriltag_interfaces
   cv_bridge
   image_transport
   std_msgs

@@ -16,7 +16,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <apriltag_msgs/msg/april_tag_detection_array.hpp>
+#include <isaac_ros_apriltag_interfaces/msg/april_tag_detection_array.hpp>
 
 #include <Eigen/Dense>
 #include <Eigen/SVD>
@@ -84,7 +84,7 @@ private:
 
   // ── Callbacks ─────────────────────────────────────────────────────────────
   void detectionCallback(
-    const apriltag_msgs::msg::AprilTagDetectionArray::ConstSharedPtr msg,
+    const isaac_ros_apriltag_interfaces::msg::AprilTagDetectionArray::ConstSharedPtr msg,
     int camera_id);
 
   /// Timer-driven: evaluate the time-window and triangulate.
@@ -154,7 +154,7 @@ private:
   double ekf_measurement_noise_;
 
   // ROS interface
-  std::array<rclcpp::Subscription<apriltag_msgs::msg::AprilTagDetectionArray>::SharedPtr,
+  std::array<rclcpp::Subscription<isaac_ros_apriltag_interfaces::msg::AprilTagDetectionArray>::SharedPtr,
              NUM_CAMERAS> subs_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
   rclcpp::TimerBase::SharedPtr window_timer_;

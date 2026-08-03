@@ -80,10 +80,10 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
 
   for (int i = 0; i < NUM_CAMERAS; ++i) {
     subs_[i] = this->create_subscription<
-      apriltag_msgs::msg::AprilTagDetectionArray>(
+      isaac_ros_apriltag_interfaces::msg::AprilTagDetectionArray>(
       topics[i],
       qos_profile,
-      [this, i](const apriltag_msgs::msg::AprilTagDetectionArray::ConstSharedPtr msg) {
+      [this, i](const isaac_ros_apriltag_interfaces::msg::AprilTagDetectionArray::ConstSharedPtr msg) {
         this->detectionCallback(msg, i);
       },
       sub_opts);
@@ -174,7 +174,7 @@ void MultiViewTracker::loadCalibration(const std::string & yaml_path)
 // Detection callback — runs concurrently for each camera
 // ─────────────────────────────────────────────────────────────────────────────
 void MultiViewTracker::detectionCallback(
-  const apriltag_msgs::msg::AprilTagDetectionArray::ConstSharedPtr msg,
+  const isaac_ros_apriltag_interfaces::msg::AprilTagDetectionArray::ConstSharedPtr msg,
   int camera_id)
 {
   const rclcpp::Time stamp = msg->header.stamp;
@@ -185,7 +185,7 @@ void MultiViewTracker::detectionCallback(
     cd.stamp = stamp;
 
     // Extract 4 corner pixel coordinates from the detection message.
-    // apriltag_msgs::AprilTagDetection.corners is Point[4] with x, y fields.
+    // isaac_ros_apriltag_interfaces::AprilTagDetection.corners is geometry_msgs::Point[4].
     for (int c = 0; c < NUM_CORNERS; ++c) {
       cd.corners_px[c] = Eigen::Vector2d(
         det.corners[c].x,
@@ -537,7 +537,7 @@ void MultiViewTracker::ekfUpdate(
 // ─────────────────────────────────────────────────────────────────────────────
 // Build the known tag model corners (in tag-local frame, z = 0)
 //
-// AprilTag corner ordering (same as apriltag_msgs):
+// AprilTag corner ordering (same as isaac_ros_apriltag_interfaces):
 //   0: bottom-left, 1: bottom-right, 2: top-right, 3: top-left
 //
 // Origin at tag centre, side length = 2 * tag_half_size_

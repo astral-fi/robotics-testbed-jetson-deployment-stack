@@ -43,8 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-humble-image-transport \
         ros-humble-ffmpeg-image-transport \
         ros-humble-cv-bridge \
-        ros-humble-apriltag-msgs \
         ros-humble-rmw-fastrtps-cpp \
+        ros-humble-rosidl-default-generators \
+        ros-humble-rosidl-default-runtime \
         python3-colcon-common-extensions \
         python3-rosdep \
     && rm -rf /var/lib/apt/lists/*
