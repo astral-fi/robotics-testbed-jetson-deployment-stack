@@ -1,0 +1,29 @@
+%YAML:1.0
+---
+# ──────────────────────────────────────────────────────────────────────────────
+# Sample camera calibration for pipeline testing
+# 4 cameras arranged in a square looking inward at the origin
+# OpenCV FileStorage format (compatible with cv::FileStorage)
+# ──────────────────────────────────────────────────────────────────────────────
+
+cameras:
+   cam0:
+      frame_id: "cam0_optical"
+      K: [ 800., 0., 640., 0., 800., 360., 0., 0., 1. ]
+      R: [ 1., 0., 0., 0., 1., 0., 0., 0., 1. ]
+      t: [ 0., 0., 3. ]
+   cam1:
+      frame_id: "cam1_optical"
+      K: [ 800., 0., 640., 0., 800., 360., 0., 0., 1. ]
+      R: [ 0., 0., -1., 0., 1., 0., 1., 0., 0. ]
+      t: [ 3., 0., 0. ]
+   cam2:
+      frame_id: "cam2_optical"
+      K: [ 800., 0., 640., 0., 800., 360., 0., 0., 1. ]
+      R: [ -1., 0., 0., 0., 1., 0., 0., 0., -1. ]
+      t: [ 0., 0., -3. ]
+   cam3:
+      frame_id: "cam3_optical"
+      K: [ 800., 0., 640., 0., 800., 360., 0., 0., 1. ]
+      R: [ 0., 0., 1., 0., 1., 0., -1., 0., 0. ]
+      t: [ -3., 0., 0. ]
