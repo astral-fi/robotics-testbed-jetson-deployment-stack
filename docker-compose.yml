@@ -42,14 +42,10 @@ services:
       - ./data:/workspace/data:ro
       - ./fastdds_unicast_pc.xml:/workspace/fastdds_unicast_pc.xml:ro
 
-    # ── Launch the full pipeline ─────────────────────────────────────────────
-    command: >
-      ros2 launch gsplat_tracker full_pipeline.launch.py
-        calibration_file:=/workspace/data/camera_calibration.yaml
-        model_checkpoint:=/workspace/data/model.ckpt
-        tag_size:=0.25
-        render_width:=1280
-        render_height:=720
+    # ── Interactive mode (prevents auto-launching pipeline) ───────────────────
+    tty: true
+    stdin_open: true
+    command: sleep infinity
 
     # ── Resource constraints ─────────────────────────────────────────────────
     deploy:
