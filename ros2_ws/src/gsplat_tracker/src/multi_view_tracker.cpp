@@ -193,23 +193,24 @@ void MultiViewTracker::detectionCallback(
   const isaac_ros_apriltag_interfaces::msg::AprilTagDetectionArray::ConstSharedPtr msg,
   int camera_id)
 {
+  if (msg->detections.empty()) return;
+
   const rclcpp::Time stamp = msg->header.stamp;
 
+  std::lock_guard<std::mutex> lock(cache_mutex_);
   for (const auto & det : msg->detections) {
     CameraDetection cd;
     cd.camera_id = camera_id;
     cd.stamp = stamp;
 
     // Extract 4 corner pixel coordinates from the detection message.
-    // isaac_ros_apriltag_interfaces::AprilTagDetection.corners is geometry_msgs::Point[4].
     for (int c = 0; c < NUM_CORNERS; ++c) {
       cd.corners_px[c] = Eigen::Vector2d(
         det.corners[c].x,
         det.corners[c].y);
     }
 
-    // ── Insert into sliding-window cache ────────────────────────────────
-    std::lock_guard<std::mutex> lock(cache_mutex_);
+    // Insert into sliding-window cache
     window_cache_[det.id].push_back(std::move(cd));
   }
 }
