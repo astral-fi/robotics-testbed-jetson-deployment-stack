@@ -125,7 +125,8 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
 // ─────────────────────────────────────────────────────────────────────────────
 void MultiViewTracker::declareParameters()
 {
-  this->declare_parameter<std::string>("calibration_file", "");
+  this->declare_parameter<std::string>(
+    "calibration_file", "/workspace/data/camera_calibration.yaml");
   this->declare_parameter<double>("tag_size", 0.25);              // metres
   this->declare_parameter<double>("ekf_process_noise", 0.01);
   this->declare_parameter<double>("ekf_measurement_noise", 0.005);
@@ -136,6 +137,12 @@ void MultiViewTracker::declareParameters()
 // ─────────────────────────────────────────────────────────────────────────────
 void MultiViewTracker::loadCalibration(const std::string & yaml_path)
 {
+  if (yaml_path.empty()) {
+    RCLCPP_FATAL(this->get_logger(),
+      "calibration_file parameter is empty! Specify path to camera_calibration.yaml");
+    throw std::runtime_error("calibration_file parameter is empty!");
+  }
+
   cv::FileStorage fs(yaml_path, cv::FileStorage::READ);
   if (!fs.isOpened()) {
     RCLCPP_FATAL(this->get_logger(),
