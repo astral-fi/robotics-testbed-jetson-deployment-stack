@@ -35,7 +35,7 @@ constexpr int NUM_CAMERAS = 4;
 constexpr int NUM_CORNERS = 4;
 
 // ── Time-window width for accumulating synchronous detections (seconds) ─────
-constexpr double WINDOW_SEC = 0.005;  // 5 ms
+constexpr double WINDOW_SEC = 0.200;  // 200 ms — accommodates Wi-Fi latency
 
 // ── Maximum age for EKF states before pruning (seconds) ─────────────────
 constexpr double EKF_STALE_SEC = 5.0;

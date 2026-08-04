@@ -109,9 +109,9 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
   pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
     "/robot/fused_pose", pub_qos);
 
-  // ── Window evaluation timer (5 ms period) ─────────────────────────────
+  // ── Window evaluation timer (50 ms period = 20 Hz) ─────────────────────
   window_timer_ = this->create_wall_timer(
-    5ms,
+    50ms,
     std::bind(&MultiViewTracker::windowEvaluationCallback, this),
     cb_group_);
 
