@@ -61,7 +61,7 @@ class GsplatRendererNode(Node):
     """Real-time Gaussian Splatting renderer driven by fused robot pose."""
 
     def __init__(self):
-        super().__init__("gsplat_renderer", enable_intra_process_comms=True)
+        super().__init__("gsplat_renderer")
 
         # ── Declare parameters ───────────────────────────────────────────
         self.declare_parameter("model_checkpoint", "/workspace/data/model.ckpt")
