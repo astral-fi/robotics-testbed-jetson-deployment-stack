@@ -361,7 +361,8 @@ Eigen::Vector3d MultiViewTracker::dltTriangulate(
   // Dehomogenise: divide by the 4th coordinate.
   if (std::abs(X_homogeneous(3)) < 1e-12) {
     // M2 fix: throttle to 1 Hz to prevent log flooding from bad data.
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+    static rclcpp::Clock steady_clock(RCL_STEADY_TIME);
+    RCLCPP_WARN_THROTTLE(this->get_logger(), steady_clock, 1000,
       "DLT: degenerate point (w ≈ 0), returning origin");
     return Eigen::Vector3d::Zero();
   }
@@ -461,7 +462,8 @@ Eigen::Isometry3d MultiViewTracker::solvePnPFallback(
                           rvec, tvec, false, cv::SOLVEPNP_EPNP);
   if (!ok) {
     // M3 fix: throttle to 1 Hz to prevent log flooding.
-    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+    static rclcpp::Clock steady_clock_pnp(RCL_STEADY_TIME);
+    RCLCPP_WARN_THROTTLE(this->get_logger(), steady_clock_pnp, 1000,
       "solvePnP failed for cam%d", det.camera_id);
     return Eigen::Isometry3d::Identity();
   }
