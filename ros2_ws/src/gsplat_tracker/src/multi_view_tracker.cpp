@@ -103,7 +103,7 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
 
   // ── Pose publisher ────────────────────────────────────────────────────
   rclcpp::QoS pub_qos(1);
-  pub_qos.best_effort();
+  pub_qos.reliable();
   pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
     "/robot/fused_pose", pub_qos);
 
