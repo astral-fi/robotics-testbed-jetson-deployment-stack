@@ -220,17 +220,24 @@ class GsplatRendererNode(Node):
     # Thread 2: Renderer loop (runs entirely in VRAM)
     # ─────────────────────────────────────────────────────────────────────
     def _render_loop(self):
-        """Infinite loop: grab pose → rasterise → enqueue frame."""
-        self.get_logger().info("Render thread started")
+        """Infinite loop: grab pose → rasterise → enqueue frame (throttled to 60 FPS)."""
+        self.get_logger().info("Render thread started (60 FPS cap)")
+        target_interval = 1.0 / 60.0  # Cap at 60 FPS
+        last_render_time = time.perf_counter()
 
         while rclpy.ok():
+            # ── Frame rate governor (60 FPS max) ───────────────────────────
+            now = time.perf_counter()
+            elapsed = now - last_render_time
+            if elapsed < target_interval:
+                time.sleep(target_interval - elapsed)
+            last_render_time = time.perf_counter()
+
             # ── Grab the latest pose ─────────────────────────────────────
             with self._pose_lock:
                 pose_T = self._latest_pose
 
             if pose_T is None:
-                # No pose received yet — sleep briefly to avoid busy-wait
-                time.sleep(0.001)
                 continue
 
             try:
@@ -247,7 +254,6 @@ class GsplatRendererNode(Node):
 
             except Exception as e:
                 self.get_logger().error(f"Render error: {e}", throttle_duration_sec=1.0)
-                time.sleep(0.01)
 
     @torch.no_grad()
     def _rasterise(self, pose_T: torch.Tensor) -> np.ndarray:
