@@ -238,18 +238,35 @@ void MultiViewTracker::windowEvaluationCallback()
     local_cache.swap(window_cache_);
   }
 
+  // ── DIAGNOSTIC: log cache contents before pruning ─────────────────────
+  {
+    size_t total_dets = 0;
+    for (const auto & [tid, dets] : local_cache) total_dets += dets.size();
+    if (total_dets > 0) {
+      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+        "DIAG: cache has %zu tags, %zu total detections", local_cache.size(), total_dets);
+    }
+  }
+
   // Collect poses to publish OUTSIDE the ekf_mutex_ (H1 fix: never
   // call publish() while holding a mutex — it can block in DDS).
   std::vector<geometry_msgs::msg::PoseStamped> poses_to_publish;
 
   for (auto & [tag_id, detections] : local_cache) {
-    // ── Prune stale detections outside the 5 ms window ──────────────────
+    size_t before_prune = detections.size();
+
+    // ── Prune stale detections outside the window ──────────────────────
     detections.erase(
       std::remove_if(detections.begin(), detections.end(),
         [&](const CameraDetection & d) {
           return std::abs((now - d.stamp).seconds()) > WINDOW_SEC;
         }),
       detections.end());
+
+    if (before_prune > 0 && detections.empty()) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+        "DIAG: Tag %d — ALL %zu detections pruned as stale!", tag_id, before_prune);
+    }
 
     if (detections.empty()) continue;
 
