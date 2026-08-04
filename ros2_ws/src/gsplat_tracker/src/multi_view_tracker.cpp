@@ -54,6 +54,14 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
   const double tag_size = this->get_parameter("tag_size").as_double();
   tag_half_size_ = tag_size / 2.0;
 
+  // ── Pre-allocate solvePnP constants (H2 fix: avoid per-frame heap alloc)
+  const auto model = buildTagModel();
+  obj_pts_.resize(NUM_CORNERS);
+  for (int i = 0; i < NUM_CORNERS; ++i) {
+    obj_pts_[i] = cv::Point3d(model[i].x(), model[i].y(), model[i].z());
+  }
+  dist_coeffs_ = cv::Mat::zeros(4, 1, CV_64F);
+
   // ── EKF tuning ──────────────────────────────────────────────────────────
   ekf_process_noise_     = this->get_parameter("ekf_process_noise").as_double();
   ekf_measurement_noise_ = this->get_parameter("ekf_measurement_noise").as_double();
@@ -62,10 +70,15 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
   cb_group_ = this->create_callback_group(
     rclcpp::CallbackGroupType::Reentrant);
 
-  // ── QoS: Best-Effort, Volatile, depth 1 for lowest latency ────────────
-  rclcpp::QoS qos_profile(1);
-  qos_profile.best_effort();
-  qos_profile.durability_volatile();
+  // ── QoS: BEST_EFFORT to avoid backpressure on Jetson's RELIABLE publisher.
+  // A BEST_EFFORT subscriber + RELIABLE publisher is valid in DDS: the
+  // publisher fire-and-forgets to us, imposing zero flow-control overhead.
+  // (C1 fix: RELIABLE caused ACK/retransmit backpressure over Wi-Fi,
+  //  blocking Nitros push pipeline with "10s waiting to push" errors.)
+  rclcpp::QoS qos_profile = rclcpp::QoS(
+    rclcpp::KeepLast(1))
+    .best_effort()
+    .durability_volatile();
 
   // ── Create subscriptions for 4 cameras ────────────────────────────────
   rclcpp::SubscriptionOptions sub_opts;
@@ -163,6 +176,9 @@ void MultiViewTracker::loadCalibration(const std::string & yaml_path)
     Rt.col(3) = calibrations_[i].t;
     calibrations_[i].P = calibrations_[i].K * Rt;
 
+    // Pre-compute OpenCV intrinsics (H2 fix: avoids per-frame eigen2cv)
+    cv::eigen2cv(calibrations_[i].K, calibrations_[i].K_cv);
+
     RCLCPP_INFO(this->get_logger(), "Loaded calibration for %s (%s)",
       cam_names[i].c_str(), calibrations_[i].frame_id.c_str());
   }
@@ -212,6 +228,10 @@ void MultiViewTracker::windowEvaluationCallback()
     std::lock_guard<std::mutex> lock(cache_mutex_);
     local_cache.swap(window_cache_);
   }
+
+  // Collect poses to publish OUTSIDE the ekf_mutex_ (H1 fix: never
+  // call publish() while holding a mutex — it can block in DDS).
+  std::vector<geometry_msgs::msg::PoseStamped> poses_to_publish;
 
   for (auto & [tag_id, detections] : local_cache) {
     // ── Prune stale detections outside the 5 ms window ──────────────────
@@ -263,7 +283,7 @@ void MultiViewTracker::windowEvaluationCallback()
 
     if (!valid) continue;
 
-    // ── EKF smooth the position ─────────────────────────────────────────
+    // ── EKF smooth the position (minimised critical section — H1 fix) ───
     {
       std::lock_guard<std::mutex> lock(ekf_mutex_);
       auto & state = ekf_states_[tag_id];
@@ -276,19 +296,34 @@ void MultiViewTracker::windowEvaluationCallback()
         state.initialized = true;
       } else {
         const double dt = (best_stamp - state.last_update_time).seconds();
-        if (dt > 0.0 && dt < 1.0) {  // Sanity-check dt
+        if (dt > 0.0 && dt < 1.0) {
           ekfPredict(state, dt);
         }
         ekfUpdate(state, pose.translation(), best_stamp);
       }
 
-      // ── Build smoothed output pose ──────────────────────────────────
-      // Keep the rotation from Kabsch/PnP (EKF only smooths position).
+      // Copy smoothed result before releasing lock.
       Eigen::Isometry3d smoothed = pose;
       smoothed.translation() = state.x.head<3>();
+      poses_to_publish.push_back(toPoseStamped(smoothed, best_stamp));
+    }  // ekf_mutex_ released BEFORE publish
+  }
 
-      auto msg_out = toPoseStamped(smoothed, best_stamp);
-      pose_pub_->publish(msg_out);
+  // ── Publish all poses OUTSIDE any mutex (H1 fix) ──────────────────────
+  for (const auto & msg : poses_to_publish) {
+    pose_pub_->publish(msg);
+  }
+
+  // ── Prune stale EKF states (C2 fix: prevent monotonic map growth) ─────
+  {
+    std::lock_guard<std::mutex> lock(ekf_mutex_);
+    for (auto it = ekf_states_.begin(); it != ekf_states_.end(); ) {
+      if (it->second.initialized &&
+          std::abs((now - it->second.last_update_time).seconds()) > EKF_STALE_SEC) {
+        it = ekf_states_.erase(it);
+      } else {
+        ++it;
+      }
     }
   }
 }
@@ -307,25 +342,26 @@ Eigen::Vector3d MultiViewTracker::dltTriangulate(
   const std::vector<Eigen::Vector2d> & pixels) const
 {
   const int n = static_cast<int>(Ps.size());
-  Eigen::MatrixXd A(2 * n, 4);
+
+  // H3 fix: fixed-max-capacity matrix (stack-allocated, max 8×4 for 4 cameras).
+  Eigen::Matrix<double, Eigen::Dynamic, 4, 0, 2 * NUM_CAMERAS, 4> A(2 * n, 4);
 
   for (int i = 0; i < n; ++i) {
     const double u = pixels[i].x();
     const double v = pixels[i].y();
 
-    // A[2i]   = u * P.row(2) - P.row(0)
     A.row(2 * i)     = u * Ps[i].row(2) - Ps[i].row(0);
-    // A[2i+1] = v * P.row(2) - P.row(1)
     A.row(2 * i + 1) = v * Ps[i].row(2) - Ps[i].row(1);
   }
 
   // SVD decomposition — we only need V.
-  Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeFullV);
+  Eigen::JacobiSVD<decltype(A)> svd(A, Eigen::ComputeFullV);
   Eigen::Vector4d X_homogeneous = svd.matrixV().col(3);
 
   // Dehomogenise: divide by the 4th coordinate.
   if (std::abs(X_homogeneous(3)) < 1e-12) {
-    RCLCPP_WARN(this->get_logger(),
+    // M2 fix: throttle to 1 Hz to prevent log flooding from bad data.
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
       "DLT: degenerate point (w ≈ 0), returning origin");
     return Eigen::Vector3d::Zero();
   }
@@ -412,31 +448,21 @@ Eigen::Isometry3d MultiViewTracker::solvePnPFallback(
 {
   const auto & cal = calibrations_[det.camera_id];
 
-  // ── 3D model points in tag-local frame (z = 0 plane) ──────────────────
-  const auto model = buildTagModel();
-  std::vector<cv::Point3d> obj_pts(NUM_CORNERS);
-  for (int i = 0; i < NUM_CORNERS; ++i) {
-    obj_pts[i] = cv::Point3d(model[i].x(), model[i].y(), model[i].z());
-  }
-
-  // ── 2D image points ──────────────────────────────────────────────────
-  std::vector<cv::Point2d> img_pts(NUM_CORNERS);
+  // H2 fix: obj_pts_, dist_coeffs_, and cal.K_cv are pre-allocated at
+  // construction time. Only img_pts needs per-call construction.
+  std::array<cv::Point2d, NUM_CORNERS> img_pts;
   for (int i = 0; i < NUM_CORNERS; ++i) {
     img_pts[i] = cv::Point2d(det.corners_px[i].x(), det.corners_px[i].y());
   }
 
-  // ── Camera matrix and zero distortion ─────────────────────────────────
-  cv::Mat K_cv;
-  Eigen::Matrix3d K_eigen = cal.K;
-  cv::eigen2cv(K_eigen, K_cv);
-  cv::Mat dist_coeffs = cv::Mat::zeros(4, 1, CV_64F);
-
   // ── Solve PnP (EPnP algorithm) ───────────────────────────────────────
   cv::Mat rvec, tvec;
-  bool ok = cv::solvePnP(obj_pts, img_pts, K_cv, dist_coeffs,
+  bool ok = cv::solvePnP(obj_pts_, img_pts, cal.K_cv, dist_coeffs_,
                           rvec, tvec, false, cv::SOLVEPNP_EPNP);
   if (!ok) {
-    RCLCPP_WARN(this->get_logger(), "solvePnP failed for cam%d", det.camera_id);
+    // M3 fix: throttle to 1 Hz to prevent log flooding.
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+      "solvePnP failed for cam%d", det.camera_id);
     return Eigen::Isometry3d::Identity();
   }
 
@@ -450,9 +476,6 @@ Eigen::Isometry3d MultiViewTracker::solvePnPFallback(
   cv::cv2eigen(tvec, t_tag_in_cam);
 
   // ── Transform from camera frame to world frame ────────────────────────
-  // T_tag_world = T_cam_world⁻¹ · T_tag_cam
-  // T_cam_world = [R_cal | t_cal] → world → camera
-  // T_cam_world⁻¹ = [Rᵀ | -Rᵀ·t]
   Eigen::Matrix3d R_cam_to_world = cal.R.transpose();
   Eigen::Vector3d t_cam_to_world = -R_cam_to_world * cal.t;
 
@@ -593,8 +616,9 @@ int main(int argc, char * argv[])
 
   // Use a MultiThreadedExecutor so that the 4 camera callbacks + timer
   // can execute concurrently on separate threads.
+  // M1 fix: 6 threads for 4 sub callbacks + 1 timer + headroom.
   rclcpp::executors::MultiThreadedExecutor executor(
-    rclcpp::ExecutorOptions(), /* num_threads = */ 4);
+    rclcpp::ExecutorOptions(), /* num_threads = */ 6);
   executor.add_node(node);
   executor.spin();
 

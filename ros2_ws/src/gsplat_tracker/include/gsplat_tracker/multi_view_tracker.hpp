@@ -37,6 +37,9 @@ constexpr int NUM_CORNERS = 4;
 // ── Time-window width for accumulating synchronous detections (seconds) ─────
 constexpr double WINDOW_SEC = 0.005;  // 5 ms
 
+// ── Maximum age for EKF states before pruning (seconds) ─────────────────
+constexpr double EKF_STALE_SEC = 5.0;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Structs
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,6 +52,7 @@ struct CameraCalibration
   Eigen::Matrix3d R;            // 3×3 rotation (world → camera)
   Eigen::Vector3d t;            // 3×1 translation (world → camera)
   Eigen::Matrix<double, 3, 4> P; // Projection matrix P = K * [R | t]
+  cv::Mat K_cv;                    // Pre-computed OpenCV intrinsics matrix
 };
 
 /// A single tag detection from one camera with its 2D corner pixels.
@@ -152,6 +156,10 @@ private:
   // EKF tuning
   double ekf_process_noise_;
   double ekf_measurement_noise_;
+
+  // Pre-allocated for solvePnP (H2 fix: avoids per-frame heap allocation)
+  std::vector<cv::Point3d> obj_pts_;
+  cv::Mat dist_coeffs_;
 
   // ROS interface
   std::array<rclcpp::Subscription<isaac_ros_apriltag_interfaces::msg::AprilTagDetectionArray>::SharedPtr,
