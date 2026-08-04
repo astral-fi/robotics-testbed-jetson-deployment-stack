@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  fastdds_nonblocking.xml — FastDDS profile for Zero-Backpressure Real-Time Streaming
+  
+  Prevents FastDDS publishers (e.g. Isaac ROS Nitros nodes on Jetson) from ever
+  blocking the calling thread during publish() when network buffers are full.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <data_writer profile_name="default_datawriter" is_default_profile="true">
+      <qos>
+        <publishMode>
+          <!-- Asynchronous mode decouples publish() call from UDP socket I/O -->
+          <kind>ASYNCHRONOUS</kind>
+        </publishMode>
+        <reliability>
+          <kind>BEST_EFFORT</kind>
+          <max_blocking_time>
+            <sec>0</sec>
+            <nanosec>0</nanosec>
+          </max_blocking_time>
+        </reliability>
+      </qos>
+      <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
+      <topic>
+        <historyQos>
+          <kind>KEEP_LAST</kind>
+          <depth>1</depth>
+        </historyQos>
+      </topic>
+    </data_writer>
+
+    <data_reader profile_name="default_datareader" is_default_profile="true">
+      <qos>
+        <reliability>
+          <kind>BEST_EFFORT</kind>
+        </reliability>
+      </qos>
+      <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
+      <topic>
+        <historyQos>
+          <kind>KEEP_LAST</kind>
+          <depth>1</depth>
+        </historyQos>
+      </topic>
+    </data_reader>
+  </profiles>
+</dds>

@@ -27,9 +27,7 @@ services:
       # ROS 2 DDS configuration
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-      # FastDDS: matches Jetson Isaac ROS container (rmw_fastrtps_cpp)
-      # Uses Simple Discovery Protocol (SDP) with multicast by default
-      # For unicast-only (more reliable over Wi-Fi), set FASTRTPS_DEFAULT_PROFILES_FILE
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/workspace/fastdds_nonblocking.xml
       # gsplat JIT cache
       - GSPLAT_BUILD_DIR=/tmp/gsplat_build
 
@@ -42,6 +40,7 @@ services:
     # ── Mount host data directory for calibration + model files ──────────────
     volumes:
       - ./data:/workspace/data:ro
+      - ./fastdds_nonblocking.xml:/workspace/fastdds_nonblocking.xml:ro
 
     # ── Launch the full pipeline ─────────────────────────────────────────────
     command: >
