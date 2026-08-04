@@ -40,36 +40,12 @@
         <publishMode>
           <kind>ASYNCHRONOUS</kind>
         </publishMode>
-        <reliability>
-          <kind>BEST_EFFORT</kind>
-          <max_blocking_time>
-            <sec>0</sec>
-            <nanosec>0</nanosec>
-          </max_blocking_time>
-        </reliability>
       </qos>
       <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
-      <topic>
-        <historyQos>
-          <kind>KEEP_LAST</kind>
-          <depth>1</depth>
-        </historyQos>
-      </topic>
     </data_writer>
 
     <data_reader profile_name="default_datareader" is_default_profile="true">
-      <qos>
-        <reliability>
-          <kind>BEST_EFFORT</kind>
-        </reliability>
-      </qos>
       <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
-      <topic>
-        <historyQos>
-          <kind>KEEP_LAST</kind>
-          <depth>1</depth>
-        </historyQos>
-      </topic>
     </data_reader>
   </profiles>
 </dds>

@@ -70,14 +70,12 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
   cb_group_ = this->create_callback_group(
     rclcpp::CallbackGroupType::Reentrant);
 
-  // ── QoS: BEST_EFFORT to avoid backpressure on Jetson's RELIABLE publisher.
-  // A BEST_EFFORT subscriber + RELIABLE publisher is valid in DDS: the
-  // publisher fire-and-forgets to us, imposing zero flow-control overhead.
-  // (C1 fix: RELIABLE caused ACK/retransmit backpressure over Wi-Fi,
-  //  blocking Nitros push pipeline with "10s waiting to push" errors.)
+  // ── QoS: RELIABLE with depth 1 to match Jetson's RELIABLE publisher.
+  // Now safe because the Jetson runs per-camera isolated containers,
+  // so RELIABLE ACKs cannot cause cross-camera thread starvation.
   rclcpp::QoS qos_profile = rclcpp::QoS(
     rclcpp::KeepLast(1))
-    .best_effort()
+    .reliable()
     .durability_volatile();
 
   // ── Create subscriptions for 4 cameras ────────────────────────────────
