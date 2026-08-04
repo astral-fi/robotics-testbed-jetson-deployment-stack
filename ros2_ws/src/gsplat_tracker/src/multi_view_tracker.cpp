@@ -202,7 +202,8 @@ void MultiViewTracker::detectionCallback(
 {
   if (msg->detections.empty()) return;
 
-  const rclcpp::Time stamp = msg->header.stamp;
+  // Use local arrival stamp for time-windowing to avoid cross-machine clock drift issues
+  const rclcpp::Time stamp = this->now();
 
   std::lock_guard<std::mutex> lock(cache_mutex_);
   for (const auto & det : msg->detections) {
