@@ -79,9 +79,9 @@ def generate_launch_description():
         executable="multi_view_tracker",
         name="multi_view_tracker",
         output="screen",
-        extra_arguments=[{"use_intra_process_comms": True}],
         parameters=[
             {
+                "use_intra_process_comms": True,
                 "calibration_file": LaunchConfiguration("calibration_file"),
                 "tag_size": LaunchConfiguration("tag_size"),
                 "ekf_process_noise": LaunchConfiguration("ekf_process_noise"),
@@ -96,9 +96,9 @@ def generate_launch_description():
         executable="gsplat_renderer_node.py",
         name="gsplat_renderer",
         output="screen",
-        extra_arguments=[{"use_intra_process_comms": True}],
         parameters=[
             {
+                "use_intra_process_comms": True,
                 "model_checkpoint": LaunchConfiguration("model_checkpoint"),
                 "render_width": LaunchConfiguration("render_width"),
                 "render_height": LaunchConfiguration("render_height"),
@@ -116,7 +116,6 @@ def generate_launch_description():
         executable="republish",
         name="ffmpeg_republisher",
         output="screen",
-        extra_arguments=[{"use_intra_process_comms": True}],
         arguments=[
             "raw",                              # input transport
             "ffmpeg",                           # output transport
@@ -126,6 +125,7 @@ def generate_launch_description():
         ],
         parameters=[
             {
+                "use_intra_process_comms": True,
                 # Output encoder configuration for ffmpeg_image_transport
                 "out.ffmpeg.encoder": "h264_nvenc",
                 "out.ffmpeg.bit_rate": 8000000,
