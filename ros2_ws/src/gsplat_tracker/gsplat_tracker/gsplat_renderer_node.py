@@ -60,10 +60,8 @@ T_ROS_TO_GRAPHICS = torch.tensor([
 class GsplatRendererNode(Node):
     """Real-time Gaussian Splatting renderer driven by fused robot pose."""
 
-    def __init__(self, options: Optional[rclpy.node.NodeOptions] = None):
-        if options is None:
-            options = rclpy.node.NodeOptions()
-        super().__init__("gsplat_renderer", options=options)
+    def __init__(self):
+        super().__init__("gsplat_renderer", enable_intra_process_comms=True)
 
         # ── Declare parameters ───────────────────────────────────────────
         self.declare_parameter("model_checkpoint", "/workspace/data/model.ckpt")
@@ -334,9 +332,7 @@ class GsplatRendererNode(Node):
 # ─────────────────────────────────────────────────────────────────────────────
 def main(args=None):
     rclpy.init(args=args)
-    options = rclpy.node.NodeOptions()
-    options.enable_intra_process_comms = True
-    node = GsplatRendererNode(options=options)
+    node = GsplatRendererNode()
 
     try:
         # Spin on the main thread (handles the pose subscription callback).
