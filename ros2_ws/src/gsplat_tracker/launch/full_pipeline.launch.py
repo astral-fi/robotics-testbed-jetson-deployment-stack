@@ -79,6 +79,7 @@ def generate_launch_description():
         executable="multi_view_tracker",
         name="multi_view_tracker",
         output="screen",
+        extra_arguments=[{"use_intra_process_comms": True}],
         parameters=[
             {
                 "calibration_file": LaunchConfiguration("calibration_file"),
@@ -95,6 +96,7 @@ def generate_launch_description():
         executable="gsplat_renderer_node.py",
         name="gsplat_renderer",
         output="screen",
+        extra_arguments=[{"use_intra_process_comms": True}],
         parameters=[
             {
                 "model_checkpoint": LaunchConfiguration("model_checkpoint"),
@@ -109,23 +111,12 @@ def generate_launch_description():
     )
 
     # ── Node 3: image_transport republish — Raw → H.264 NVENC stream ────
-    #
-    # This node subscribes to the raw image on /gsplat/raw_image and
-    # republishes it as an H.264-encoded ffmpeg transport stream on
-    # /gsplat/rendered_stream/ffmpeg.
-    #
-    # NVENC ultra-low latency tuning:
-    #   preset:ll     — Low-latency preset
-    #   tune:ull      — Ultra-low latency tuning
-    #   delay:0       — Zero-frame encode delay
-    #   zerolatency:1 — Disable B-frames and lookahead
-    #   gop_size:5    — Keyframe every 5 frames for fast seeking
-    # ─────────────────────────────────────────────────────────────────────
     republish_node = Node(
         package="image_transport",
         executable="republish",
         name="ffmpeg_republisher",
         output="screen",
+        extra_arguments=[{"use_intra_process_comms": True}],
         arguments=[
             "raw",                              # input transport
             "ffmpeg",                           # output transport
