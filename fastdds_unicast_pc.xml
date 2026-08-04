@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  fastdds_unicast_pc.xml — FastDDS Direct Point-to-Point Unicast Profile for PC
+  Target Jetson IP: 10.0.0.16
+  
+  Bypasses Wi-Fi multicast drops by establishing a 1-step direct unicast link,
+  preventing discovery handshake loops that freeze the Jetson Nitros pipeline.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <participant profile_name="unicast_pc_participant" is_default_profile="true">
+      <rtps>
+        <builtin>
+          <discovery_config>
+            <discoveryProtocol>SIMPLE</discoveryProtocol>
+            <EDP>SIMPLE</EDP>
+            <leaseDuration>
+              <sec>10</sec>
+              <nanosec>0</nanosec>
+            </leaseDuration>
+          </discovery_config>
+          <initialPeersList>
+            <locator>
+              <udpv4>
+                <address>10.0.0.16</address>
+              </udpv4>
+            </locator>
+          </initialPeersList>
+        </builtin>
+      </rtps>
+    </participant>
+
+    <data_writer profile_name="default_datawriter" is_default_profile="true">
+      <qos>
+        <publishMode>
+          <kind>ASYNCHRONOUS</kind>
+        </publishMode>
+        <reliability>
+          <kind>BEST_EFFORT</kind>
+          <max_blocking_time>
+            <sec>0</sec>
+            <nanosec>0</nanosec>
+          </max_blocking_time>
+        </reliability>
+      </qos>
+      <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
+      <topic>
+        <historyQos>
+          <kind>KEEP_LAST</kind>
+          <depth>1</depth>
+        </historyQos>
+      </topic>
+    </data_writer>
+
+    <data_reader profile_name="default_datareader" is_default_profile="true">
+      <qos>
+        <reliability>
+          <kind>BEST_EFFORT</kind>
+        </reliability>
+      </qos>
+      <historyMemoryPolicy>PREALLOCATED_WITH_REALLOC</historyMemoryPolicy>
+      <topic>
+        <historyQos>
+          <kind>KEEP_LAST</kind>
+          <depth>1</depth>
+        </historyQos>
+      </topic>
+    </data_reader>
+  </profiles>
+</dds>
