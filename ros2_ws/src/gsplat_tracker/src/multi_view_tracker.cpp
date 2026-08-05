@@ -253,6 +253,19 @@ void MultiViewTracker::windowEvaluationCallback()
   for (auto & [tag_id, detections] : local_cache) {
     size_t before_prune = detections.size();
 
+    // ── Keep only the most recent detection per camera ────────────────
+    std::map<int, CameraDetection> unique_cams;
+    for (const auto & d : detections) {
+      auto it = unique_cams.find(d.camera_id);
+      if (it == unique_cams.end() || d.stamp > it->second.stamp) {
+        unique_cams[d.camera_id] = d;
+      }
+    }
+    detections.clear();
+    for (const auto & [cid, d] : unique_cams) {
+      detections.push_back(d);
+    }
+
     // ── Prune stale detections outside the window ──────────────────────
     detections.erase(
       std::remove_if(detections.begin(), detections.end(),

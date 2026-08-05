@@ -108,10 +108,10 @@ class GsplatRendererNode(Node):
         # ── Bounded frame queue (drop-oldest policy via maxsize) ─────────
         self._frame_queue: queue.Queue = queue.Queue(maxsize=2)
 
-        # ── ROS 2 QoS: Best-Effort for minimum latency ──────────────────
+        # ── ROS 2 QoS: Reliable ─────────────────────────────────────────────
         qos = QoSProfile(
             depth=1,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
         )
 
