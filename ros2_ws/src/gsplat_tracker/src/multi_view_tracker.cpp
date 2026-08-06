@@ -521,10 +521,10 @@ Eigen::Isometry3d MultiViewTracker::solvePnPFallback(
     img_pts[i] = cv::Point2d(det.corners_px[i].x(), det.corners_px[i].y());
   }
 
-  // ── Solve PnP (EPnP algorithm) ───────────────────────────────────────
+  // ── Solve PnP (ITERATIVE is mathematically stable for 4 planar points) ──
   cv::Mat rvec, tvec;
   bool ok = cv::solvePnP(obj_pts_, img_pts, cal.K_cv, dist_coeffs_,
-                          rvec, tvec, false, cv::SOLVEPNP_EPNP);
+                          rvec, tvec, false, cv::SOLVEPNP_ITERATIVE);
   if (!ok) {
     // M3 fix: throttle to 1 Hz to prevent log flooding.
     static rclcpp::Clock steady_clock_pnp(RCL_STEADY_TIME);
