@@ -163,16 +163,20 @@ void MultiViewTracker::loadCalibration(const std::string & yaml_path)
     calibrations_[i].K = Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(
       k_vec.data());
 
-    // ── Rotation R (3×3, world → camera) ────────────────────────────────
+    // ── Rotation R (3×3, camera → world) ────────────────────────────────
     std::vector<double> r_vec;
     cam["R"] >> r_vec;
-    calibrations_[i].R = Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(
+    Eigen::Matrix3d R_c2w = Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(
       r_vec.data());
 
-    // ── Translation t (3×1) ─────────────────────────────────────────────
+    // ── Translation t (3×1, camera → world) ─────────────────────────────
     std::vector<double> t_vec;
     cam["t"] >> t_vec;
-    calibrations_[i].t = Eigen::Map<Eigen::Vector3d>(t_vec.data());
+    Eigen::Vector3d t_c2w = Eigen::Map<Eigen::Vector3d>(t_vec.data());
+
+    // ── Convert Camera-to-World to World-to-Camera ──────────────────────
+    calibrations_[i].R = R_c2w.transpose();
+    calibrations_[i].t = -calibrations_[i].R * t_c2w;
 
     // ── Build projection matrix P = K * [R | t] ────────────────────────
     Eigen::Matrix<double, 3, 4> Rt;
