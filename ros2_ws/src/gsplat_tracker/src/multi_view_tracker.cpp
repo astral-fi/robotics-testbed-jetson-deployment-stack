@@ -289,6 +289,8 @@ void MultiViewTracker::windowEvaluationCallback()
       // ── Multi-view DLT triangulation for each corner ──────────────────
       std::array<Eigen::Vector3d, NUM_CORNERS> pts_3d;
 
+      bool dlt_ok = true;
+
       for (int c = 0; c < NUM_CORNERS; ++c) {
         std::vector<Eigen::Matrix<double, 3, 4>> Ps;
         std::vector<Eigen::Vector2d> pixels;
@@ -299,14 +301,29 @@ void MultiViewTracker::windowEvaluationCallback()
         }
 
         pts_3d[c] = dltTriangulate(Ps, pixels);
+        if (std::isnan(pts_3d[c].x())) {
+          dlt_ok = false;
+          break;
+        }
       }
 
-      // ── Kabsch alignment: measured 3D corners → known tag model ───────
-      pose = kabschAlign(pts_3d, model_corners);
-      valid = true;
+      if (dlt_ok) {
+        // ── Kabsch alignment: measured 3D corners → known tag model ───────
+        pose = kabschAlign(pts_3d, model_corners);
+        valid = true;
 
-      RCLCPP_DEBUG(this->get_logger(),
-        "Tag %d: DLT+Kabsch from %zu views", tag_id, detections.size());
+        RCLCPP_DEBUG(this->get_logger(),
+          "Tag %d: DLT+Kabsch from %zu views", tag_id, detections.size());
+      } else {
+        // ── DLT Failed: Fallback to EPnP ──────────────────────────────────
+        pose = solvePnPFallback(detections.front());
+        valid = true;
+        
+        static rclcpp::Clock steady_clock(RCL_STEADY_TIME);
+        RCLCPP_WARN_THROTTLE(this->get_logger(), steady_clock, 1000,
+          "Tag %d: DLT triangulation degenerate, fallback to solvePnP (cam%d)", 
+          tag_id, detections.front().camera_id);
+      }
 
     } else {
       // ── Single-camera fallback: EPnP ──────────────────────────────────
@@ -396,12 +413,13 @@ Eigen::Vector3d MultiViewTracker::dltTriangulate(
   Eigen::Vector4d X_homogeneous = svd.matrixV().col(3);
 
   // Dehomogenise: divide by the 4th coordinate.
-  if (std::abs(X_homogeneous(3)) < 1e-12) {
+  // We use 1e-4 because if w < 1e-4, the point is > 10,000 units away.
+  if (std::abs(X_homogeneous(3)) < 1e-4) {
     // M2 fix: throttle to 1 Hz to prevent log flooding from bad data.
     static rclcpp::Clock steady_clock(RCL_STEADY_TIME);
     RCLCPP_WARN_THROTTLE(this->get_logger(), steady_clock, 1000,
-      "DLT: degenerate point (w ≈ 0), returning origin");
-    return Eigen::Vector3d::Zero();
+      "DLT: degenerate point (w = %g), returning NaN", X_homogeneous(3));
+    return Eigen::Vector3d(std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0);
   }
 
   return X_homogeneous.head<3>() / X_homogeneous(3);
