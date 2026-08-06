@@ -328,7 +328,6 @@ class GsplatRendererNode(Node):
             "width": self.width,
             "height": self.height,
             "absgrad": False,
-            "background": torch.zeros(3, device=self.device, dtype=torch.float32),
         }
         if self.sh_degree is not None:
             rasterization_kwargs["sh_degree"] = self.sh_degree
