@@ -119,9 +119,10 @@ def generate_launch_description():
         arguments=[
             "raw",                              # input transport
             "ffmpeg",                           # output transport
-            "--ros-args",
-            "--remap", "in:=/gsplat/raw_image",
-            "--remap", "out:=/gsplat/rendered_stream",
+        ],
+        remappings=[
+            ("in", "/gsplat/raw_image"),
+            ("out", "/gsplat/rendered_stream"),
         ],
         parameters=[
             {

@@ -157,7 +157,12 @@ class GsplatRendererNode(Node):
         self.means = checkpoint["means"].to(self.device).contiguous()
         self.quats = checkpoint["quats"].to(self.device).contiguous()
         self.scales = checkpoint["scales"].to(self.device).contiguous()
-        self.opacities = checkpoint["opacities"].to(self.device).contiguous()
+        
+        # gsplat often expects opacities to be of shape [N], but checkpoints might save them as [N, 1]
+        opacities = checkpoint["opacities"].to(self.device).contiguous()
+        if opacities.dim() == 2 and opacities.shape[1] == 1:
+            opacities = opacities.squeeze(-1)
+        self.opacities = opacities
 
         # Colors: support both raw RGB and spherical harmonics
         if "colors" in checkpoint:
