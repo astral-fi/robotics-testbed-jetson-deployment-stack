@@ -153,22 +153,39 @@ class GsplatRendererNode(Node):
         checkpoint = torch.load(ckpt_path, map_location=self.device,
                                 weights_only=False)
 
-        # Extract Gaussian parameters — adapt keys to your training pipeline
-        self.means = checkpoint["means"].to(self.device).contiguous()
-        self.quats = checkpoint["quats"].to(self.device).contiguous()
-        self.scales = checkpoint["scales"].to(self.device).contiguous()
+        # Ensure we know the base number of Gaussians
+        raw_means = checkpoint["means"]
+        N = raw_means.numel() // 3
+
+        # Extract Gaussian parameters — enforce exact shapes, float32, and contiguity
+        self.means = raw_means.to(self.device).float().contiguous().view(N, 3)
         
-        # gsplat often expects opacities to be of shape [N], but checkpoints might save them as [N, 1]
-        opacities = checkpoint["opacities"].to(self.device).contiguous()
-        if opacities.dim() == 2 and opacities.shape[1] == 1:
-            opacities = opacities.squeeze(-1)
-        self.opacities = opacities
+        # Quaternions must be [N, 4] and unit-length
+        quats = checkpoint["quats"].to(self.device).float().contiguous().view(N, 4)
+        self.quats = quats / (quats.norm(dim=-1, keepdim=True) + 1e-8)
+        
+        self.scales = checkpoint["scales"].to(self.device).float().contiguous().view(N, 3)
+        
+        # gsplat expects opacities to be of shape [N]
+        self.opacities = checkpoint["opacities"].to(self.device).float().contiguous().view(N)
 
         # Colors: support both raw RGB and spherical harmonics
+        self.sh_degree = None
         if "colors" in checkpoint:
-            self.colors = checkpoint["colors"].to(self.device).contiguous()
+            colors = checkpoint["colors"].to(self.device).float().contiguous()
+            if colors.numel() == N * 3:
+                self.colors = colors.view(N, 3)
+            else:
+                K = colors.numel() // (N * 3)
+                self.colors = colors.view(N, K, 3)
+                import math
+                self.sh_degree = int(math.sqrt(K)) - 1
         elif "sh_coefficients" in checkpoint:
-            self.colors = checkpoint["sh_coefficients"].to(self.device).contiguous()
+            colors = checkpoint["sh_coefficients"].to(self.device).float().contiguous()
+            K = colors.numel() // (N * 3)
+            self.colors = colors.view(N, K, 3)
+            import math
+            self.sh_degree = int(math.sqrt(K)) - 1
         else:
             raise KeyError(
                 "Checkpoint must contain 'colors' or 'sh_coefficients'"
@@ -284,22 +301,25 @@ class GsplatRendererNode(Node):
         W2C = torch.inverse(C2W)
 
         # ── Batch dimension [1, 4, 4] for gsplat API ─────────────────────
-        viewmats = W2C.unsqueeze(0)
+        viewmats = W2C.unsqueeze(0).contiguous()
 
         # ── Rasterise ────────────────────────────────────────────────────
-        rendered, _, _ = rasterization(
-            means=self.means,
-            quats=self.quats,
-            scales=self.scales,
-            opacities=self.opacities,
-            colors=self.colors,
-            viewmats=viewmats,
-            Ks=self.K,
-            width=self.width,
-            height=self.height,
-            # Performance: disable gradient tracking, we're inference-only
-            absgrad=False,
-        )
+        rasterization_kwargs = {
+            "means": self.means,
+            "quats": self.quats,
+            "scales": self.scales,
+            "opacities": self.opacities,
+            "colors": self.colors,
+            "viewmats": viewmats,
+            "Ks": self.K.contiguous(),
+            "width": self.width,
+            "height": self.height,
+            "absgrad": False,
+        }
+        if self.sh_degree is not None:
+            rasterization_kwargs["sh_degree"] = self.sh_degree
+            
+        rendered, _, _ = rasterization(**rasterization_kwargs)
 
         # rendered shape: [1, H, W, 3] (float32, range [0, 1])
 
