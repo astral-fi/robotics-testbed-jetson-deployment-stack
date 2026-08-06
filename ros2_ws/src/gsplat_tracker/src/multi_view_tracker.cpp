@@ -149,7 +149,7 @@ void MultiViewTracker::loadCalibration(const std::string & yaml_path)
 
   cv::FileNode cameras_node = fs["cameras"];
   const std::array<std::string, NUM_CAMERAS> cam_names =
-    {"cam0", "cam1", "cam2", "cam3"};
+    {"cam0", "cam1", "cam2"};
 
   for (int i = 0; i < NUM_CAMERAS; ++i) {
     cv::FileNode cam = cameras_node[cam_names[i]];
