@@ -335,6 +335,17 @@ void MultiViewTracker::windowEvaluationCallback()
         detections.front().camera_id);
     }
 
+    // ── Hard Sanity Check (Prevent 9e11 Explosions) ─────────────────────
+    if (valid) {
+      if (!std::isfinite(pose.translation().x()) || pose.translation().norm() > 100.0) {
+        static rclcpp::Clock steady_clock(RCL_STEADY_TIME);
+        RCLCPP_WARN_THROTTLE(this->get_logger(), steady_clock, 1000,
+          "Tag %d: Computed pose is physically impossible (norm = %g). Rejecting.", 
+          tag_id, pose.translation().norm());
+        valid = false;
+      }
+    }
+
     if (!valid) continue;
 
     // ── EKF smooth the position (minimised critical section — H1 fix) ───
