@@ -29,7 +29,7 @@ namespace gsplat_tracker
 {
 
 // ── Number of cameras in the rig ────────────────────────────────────────────
-constexpr int NUM_CAMERAS = 4;
+constexpr int NUM_CAMERAS = 3;
 
 // ── Number of corners per AprilTag ──────────────────────────────────────────
 constexpr int NUM_CORNERS = 4;

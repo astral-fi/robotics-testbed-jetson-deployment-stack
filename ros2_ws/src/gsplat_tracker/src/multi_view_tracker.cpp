@@ -85,7 +85,6 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
   const std::array<std::string, NUM_CAMERAS> topics = {
     "/cam_25251947/tag_detections",
     "/cam_25251937/tag_detections",
-    "/cam_25251925/tag_detections",
     "/cam_25251936/tag_detections"
   };
 
