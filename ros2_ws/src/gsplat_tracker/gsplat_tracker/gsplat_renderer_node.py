@@ -164,26 +164,39 @@ class GsplatRendererNode(Node):
         quats = checkpoint["quats"].to(self.device).float().contiguous().view(N, 4)
         self.quats = quats / (quats.norm(dim=-1, keepdim=True) + 1e-8)
         
-        self.scales = checkpoint["scales"].to(self.device).float().contiguous().view(N, 3)
+        scales = checkpoint["scales"].to(self.device).float().contiguous().view(N, 3)
+        # Auto-detect if scales are log-scales (log-scales typically have negative values)
+        if scales.min() < 0.0:
+            self.scales = torch.exp(scales)
+        else:
+            self.scales = scales
         
-        # gsplat expects opacities to be of shape [N]
-        self.opacities = checkpoint["opacities"].to(self.device).float().contiguous().view(N)
+        opacities = checkpoint["opacities"].to(self.device).float().contiguous().view(N)
+        # Auto-detect if opacities are logits (logits go outside [0, 1])
+        if opacities.min() < 0.0 or opacities.max() > 1.0:
+            self.opacities = torch.sigmoid(opacities)
+        else:
+            self.opacities = opacities
 
         # Colors: support both raw RGB and spherical harmonics
         self.sh_degree = None
         if "colors" in checkpoint:
-            colors = checkpoint["colors"].to(self.device).float().contiguous()
+            colors = checkpoint["colors"].to(self.device).float()
             if colors.numel() == N * 3:
-                self.colors = colors.view(N, 3)
+                self.colors = colors.contiguous().view(N, 3)
             else:
                 K = colors.numel() // (N * 3)
-                self.colors = colors.view(N, K, 3)
+                if colors.dim() == 3 and colors.shape[1] == 3 and colors.shape[2] == K:
+                    colors = colors.transpose(1, 2)
+                self.colors = colors.contiguous().view(N, K, 3)
                 import math
                 self.sh_degree = int(math.sqrt(K)) - 1
         elif "sh_coefficients" in checkpoint:
-            colors = checkpoint["sh_coefficients"].to(self.device).float().contiguous()
+            colors = checkpoint["sh_coefficients"].to(self.device).float()
             K = colors.numel() // (N * 3)
-            self.colors = colors.view(N, K, 3)
+            if colors.dim() == 3 and colors.shape[1] == 3 and colors.shape[2] == K:
+                colors = colors.transpose(1, 2)
+            self.colors = colors.contiguous().view(N, K, 3)
             import math
             self.sh_degree = int(math.sqrt(K)) - 1
         else:
@@ -315,6 +328,7 @@ class GsplatRendererNode(Node):
             "width": self.width,
             "height": self.height,
             "absgrad": False,
+            "background": torch.zeros(3, device=self.device, dtype=torch.float32),
         }
         if self.sh_degree is not None:
             rasterization_kwargs["sh_degree"] = self.sh_degree
