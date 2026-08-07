@@ -33,6 +33,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 # gsplat high-level rasterization API
 from gsplat import rasterization
@@ -125,6 +126,7 @@ class GsplatRendererNode(Node):
 
         # ── Image publisher ──────────────────────────────────────────────
         self.image_pub = self.create_publisher(Image, "/gsplat/raw_image", qos)
+        self.bridge = CvBridge()
 
         # ── Thread 2: Renderer loop ─────────────────────────────────────
         self._render_thread = threading.Thread(
@@ -360,15 +362,9 @@ class GsplatRendererNode(Node):
                 continue
 
             # ── Build sensor_msgs/Image ──────────────────────────────────
-            msg = Image()
+            msg = self.bridge.cv2_to_imgmsg(frame, encoding="rgb8")
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "gsplat_virtual_camera"
-            msg.height = frame.shape[0]
-            msg.width = frame.shape[1]
-            msg.encoding = "rgb8"
-            msg.is_bigendian = False
-            msg.step = frame.shape[1] * 3  # 3 bytes per pixel (RGB)
-            msg.data = frame.tobytes()
 
             self.image_pub.publish(msg)
 
