@@ -127,6 +127,7 @@ void MultiViewTracker::declareParameters()
   this->declare_parameter<double>("tag_size", 0.25);              // metres
   this->declare_parameter<double>("ekf_process_noise", 0.01);
   this->declare_parameter<double>("ekf_measurement_noise", 0.005);
+  this->declare_parameter<bool>("gsplat_opengl_convention", true);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -168,6 +169,14 @@ void MultiViewTracker::loadCalibration(const std::string & yaml_path)
     cam["R"] >> r_vec;
     Eigen::Matrix3d R_c2w = Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(
       r_vec.data());
+
+    if (this->get_parameter("gsplat_opengl_convention").as_bool()) {
+      // gsplat uses OpenGL camera convention (Y up, Z back).
+      // OpenCV (used by DLT and solvePnP) uses Y down, Z forward.
+      // Convert C2W rotation from OpenGL to OpenCV by flipping Y and Z axes.
+      R_c2w.col(1) *= -1.0;
+      R_c2w.col(2) *= -1.0;
+    }
 
     // ── Translation t (3×1, camera → world) ─────────────────────────────
     std::vector<double> t_vec;
