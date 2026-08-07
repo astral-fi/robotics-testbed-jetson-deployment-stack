@@ -70,12 +70,11 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
   cb_group_ = this->create_callback_group(
     rclcpp::CallbackGroupType::Reentrant);
 
-  // ── QoS: RELIABLE with depth 1 to match Jetson's RELIABLE publisher.
-  // Now safe because the Jetson runs per-camera isolated containers,
-  // so RELIABLE ACKs cannot cause cross-camera thread starvation.
+  // ── QoS: BEST_EFFORT with depth 1 to match Jetson's publisher.
+  // The Jetson uses fastdds_nonblocking.xml which enforces BEST_EFFORT.
   rclcpp::QoS qos_profile = rclcpp::QoS(
     rclcpp::KeepLast(1))
-    .reliable()
+    .best_effort()
     .durability_volatile();
 
   // ── Create subscriptions for 4 cameras ────────────────────────────────
