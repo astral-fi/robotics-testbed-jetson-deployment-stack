@@ -39,7 +39,7 @@ def generate_launch_description():
 
     tag_size_arg = DeclareLaunchArgument(
         "tag_size",
-        default_value="0.25",
+        default_value="0.21",
         description="Physical side length of the AprilTag in metres.",
     )
 
