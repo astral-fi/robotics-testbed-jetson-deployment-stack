@@ -70,6 +70,7 @@ struct EkfState
   Eigen::Matrix<double, 6, 6> P = Eigen::Matrix<double, 6, 6>::Identity();
   rclcpp::Time last_update_time;
   bool initialized = false;
+  Eigen::Quaterniond smoothed_q = Eigen::Quaterniond::Identity();
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

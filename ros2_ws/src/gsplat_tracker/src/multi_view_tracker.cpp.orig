@@ -125,7 +125,7 @@ void MultiViewTracker::declareParameters()
     "calibration_file", "/workspace/data/camera_calibration.yaml");
   this->declare_parameter<double>("tag_size", 0.21);              // metres
   this->declare_parameter<double>("ekf_process_noise", 0.01);
-  this->declare_parameter<double>("ekf_measurement_noise", 0.05);
+  this->declare_parameter<double>("ekf_measurement_noise", 0.005);
   this->declare_parameter<bool>("gsplat_opengl_convention", false);
 }
 
@@ -369,7 +369,6 @@ void MultiViewTracker::windowEvaluationCallback()
         state.x.tail<3>().setZero();
         state.P = Eigen::Matrix<double, 6, 6>::Identity() * 1.0;
         state.last_update_time = best_stamp;
-        state.smoothed_q = Eigen::Quaterniond(pose.rotation());
         state.initialized = true;
       } else {
         const double dt = (best_stamp - state.last_update_time).seconds();
@@ -377,21 +376,11 @@ void MultiViewTracker::windowEvaluationCallback()
           ekfPredict(state, dt);
         }
         ekfUpdate(state, pose.translation(), best_stamp);
-        
-        // Spherical Linear Interpolation (SLERP) for rotation smoothing
-        Eigen::Quaterniond raw_q(pose.rotation());
-        if (state.smoothed_q.dot(raw_q) < 0.0) {
-          raw_q.coeffs() = -raw_q.coeffs(); // Ensure shortest path
-        }
-        // Alpha 0.1 means 10% new measurement, 90% history
-        state.smoothed_q = state.smoothed_q.slerp(0.1, raw_q);
-        state.smoothed_q.normalize();
       }
 
       // Copy smoothed result before releasing lock.
       Eigen::Isometry3d smoothed = pose;
       smoothed.translation() = state.x.head<3>();
-      smoothed.linear() = state.smoothed_q.toRotationMatrix();
       poses_to_publish.push_back(toPoseStamped(smoothed, best_stamp));
     }  // ekf_mutex_ released BEFORE publish
   }
@@ -677,22 +666,13 @@ geometry_msgs::msg::PoseStamped MultiViewTracker::toPoseStamped(
   msg.header.stamp = stamp;
   msg.header.frame_id = "world";
 
-  // Coordinate Transform: OpenCV (X-right, Y-down, Z-forward) to ROS (X-forward, Y-left, Z-up)
-  Eigen::Matrix3d R_cv_to_ros;
-  R_cv_to_ros <<  0,  0,  1,
-                 -1,  0,  0,
-                  0, -1,  0;
-  
-  Eigen::Vector3d t_ros = R_cv_to_ros * pose.translation();
-  Eigen::Matrix3d rot_ros = R_cv_to_ros * pose.rotation() * R_cv_to_ros.transpose();
-
   // Translation
-  msg.pose.position.x = t_ros.x();
-  msg.pose.position.y = t_ros.y();
-  msg.pose.position.z = t_ros.z();
+  msg.pose.position.x = pose.translation().x();
+  msg.pose.position.y = pose.translation().y();
+  msg.pose.position.z = pose.translation().z();
 
   // Rotation → quaternion
-  Eigen::Quaterniond q(rot_ros);
+  Eigen::Quaterniond q(pose.rotation());
   q.normalize();
   msg.pose.orientation.w = q.w();
   msg.pose.orientation.x = q.x();
