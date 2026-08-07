@@ -126,7 +126,7 @@ void MultiViewTracker::declareParameters()
   this->declare_parameter<double>("tag_size", 0.21);              // metres
   this->declare_parameter<double>("ekf_process_noise", 0.01);
   this->declare_parameter<double>("ekf_measurement_noise", 0.005);
-  this->declare_parameter<bool>("gsplat_opengl_convention", true);
+  this->declare_parameter<bool>("gsplat_opengl_convention", false);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
