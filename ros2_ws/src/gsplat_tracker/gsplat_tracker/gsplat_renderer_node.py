@@ -40,20 +40,21 @@ from gsplat import rasterization
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Coordinate frame alignment matrix: ROS REP 103 → gsplat/OpenGL convention
+# Coordinate frame alignment: Virtual Camera (Graphics) → Tag (OpenCV)
 #
-# ROS:    X-fwd,  Y-left, Z-up
-# gsplat: X-right, Y-down, Z-fwd
+# Virtual Camera: X-right, Y-down, Z-forward
+# Tag Surface:    X-right, Y-forward, Z-up (normal to tag)
 #
-# T_ros_to_graphics = | 0  -1   0  0 |   (ROS Y → graphics -X)
-#                     | 0   0  -1  0 |   (ROS Z → graphics -Y)
-#                     | 1   0   0  0 |   (ROS X → graphics  Z)
-#                     | 0   0   0  1 |
+# We map:
+#   Camera Z (fwd)  → Tag Y (fwd)
+#   Camera Y (down) → Tag -Z (down)
+#   Camera X (right)→ Tag X (right)
+# And add a 0.2m Z-offset to elevate the camera above the floor.
 # ─────────────────────────────────────────────────────────────────────────────
-T_ROS_TO_GRAPHICS = torch.tensor([
-    [0.0, -1.0,  0.0, 0.0],
-    [0.0,  0.0, -1.0, 0.0],
+T_CAM_TO_TAG = torch.tensor([
     [1.0,  0.0,  0.0, 0.0],
+    [0.0,  0.0,  1.0, 0.0],
+    [0.0, -1.0,  0.0, 0.2],
     [0.0,  0.0,  0.0, 1.0],
 ], dtype=torch.float32)
 
@@ -95,9 +96,6 @@ class GsplatRendererNode(Node):
             [0.0, fy, cy],
             [0.0, 0.0, 1.0],
         ], dtype=torch.float32, device=self.device).unsqueeze(0)  # [1, 3, 3]
-
-        # ── Coordinate transform (pre-computed, on GPU) ─────────────────
-        self.T_ros_to_graphics = T_ROS_TO_GRAPHICS.to(self.device)
 
         # ── Load gsplat model ────────────────────────────────────────────
         self._load_model()
@@ -298,19 +296,20 @@ class GsplatRendererNode(Node):
         Run the full gsplat rasterization pipeline on the GPU.
 
         Coordinate math:
-          T_robot_in_gsplat = pose_T (robot pose in ROS world frame)
-          T_ros_to_graphics = axis flip matrix
-          C2W = T_robot_in_gsplat @ T_ros_to_graphics
+          T_tag_to_world = pose_T (tag pose in OpenCV world frame)
+          T_cam_to_tag = alignment + 0.2m elevation matrix
+          C2W = T_tag_to_world @ T_cam_to_tag
           W2C = C2W⁻¹
 
         gsplat.rasterization() expects viewmats as W2C [C, 4, 4].
         """
         # ── Move pose to GPU if not already there ────────────────────────
         pose_gpu = pose_T.to(self.device)
+        T_cam_to_tag_gpu = T_CAM_TO_TAG.to(self.device)
 
         # ── Compute camera-to-world in gsplat coordinate frame ───────────
-        #    C2W = T_robot_in_gsplat × T_ros_to_graphics
-        C2W = pose_gpu @ self.T_ros_to_graphics
+        #    C2W = T_tag_to_world × T_cam_to_tag
+        C2W = pose_gpu @ T_cam_to_tag_gpu
 
         # ── World-to-camera = inverse of C2W ─────────────────────────────
         W2C = torch.inverse(C2W)
