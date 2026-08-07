@@ -61,7 +61,7 @@ RUN pip3 install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cu121 \
     && pip3 install --no-cache-dir \
         gsplat \
-        numpy \
+        "numpy<2.0.0" \
         scipy \
         pyyaml \
         transforms3d
