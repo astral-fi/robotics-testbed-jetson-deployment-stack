@@ -677,22 +677,13 @@ geometry_msgs::msg::PoseStamped MultiViewTracker::toPoseStamped(
   msg.header.stamp = stamp;
   msg.header.frame_id = "world";
 
-  // Coordinate Transform: OpenCV (X-right, Y-down, Z-forward) to ROS (X-forward, Y-left, Z-up)
-  Eigen::Matrix3d R_cv_to_ros;
-  R_cv_to_ros <<  0,  0,  1,
-                 -1,  0,  0,
-                  0, -1,  0;
-  
-  Eigen::Vector3d t_ros = R_cv_to_ros * pose.translation();
-  Eigen::Matrix3d rot_ros = R_cv_to_ros * pose.rotation() * R_cv_to_ros.transpose();
-
   // Translation
-  msg.pose.position.x = t_ros.x();
-  msg.pose.position.y = t_ros.y();
-  msg.pose.position.z = t_ros.z();
+  msg.pose.position.x = pose.translation().x();
+  msg.pose.position.y = pose.translation().y();
+  msg.pose.position.z = pose.translation().z();
 
   // Rotation → quaternion
-  Eigen::Quaterniond q(rot_ros);
+  Eigen::Quaterniond q(pose.rotation());
   q.normalize();
   msg.pose.orientation.w = q.w();
   msg.pose.orientation.x = q.x();
