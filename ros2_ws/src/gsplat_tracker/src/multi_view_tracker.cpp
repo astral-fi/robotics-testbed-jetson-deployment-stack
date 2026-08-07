@@ -649,9 +649,9 @@ std::array<Eigen::Vector3d, NUM_CORNERS> MultiViewTracker::buildTagModel() const
   const double h = tag_half_size_;
   return {
     Eigen::Vector3d(-h, -h, 0.0),  // corner 0: bottom-left
-    Eigen::Vector3d( h, -h, 0.0),  // corner 1: bottom-right
+    Eigen::Vector3d(-h,  h, 0.0),  // corner 1: top-left
     Eigen::Vector3d( h,  h, 0.0),  // corner 2: top-right
-    Eigen::Vector3d(-h,  h, 0.0)   // corner 3: top-left
+    Eigen::Vector3d( h, -h, 0.0)   // corner 3: bottom-right
   };
 }
 
