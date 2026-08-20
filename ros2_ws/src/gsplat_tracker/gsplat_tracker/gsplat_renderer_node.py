@@ -336,8 +336,8 @@ class GsplatRendererNode(Node):
         rendered, _, _ = rasterization(**rasterization_kwargs)
 
         # rendered shape: [1, H, W, 3] (float32)
-        if self.sh_degree is not None:
-            rendered = rendered + 0.5
+        # NOTE: gsplat.rasterization() evaluates SH internally (including DC bias).
+        # Do NOT add a manual +0.5 offset here — it would over-brighten the image.
 
         # ── Convert to uint8 — still on GPU ──────────────────────────────
         frame_gpu = (rendered[0].clamp(0.0, 1.0) * 255.0).to(torch.uint8)
