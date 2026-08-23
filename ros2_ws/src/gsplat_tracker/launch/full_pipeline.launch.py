@@ -105,6 +105,38 @@ def generate_launch_description():
         description="EKF measurement noise scalar.",
     )
 
+    # ── Tracker robustness / smoothing ───────────────────────────────────
+    rotation_tau_arg = DeclareLaunchArgument(
+        "rotation_tau",
+        default_value="0.3",
+        description="Orientation smoothing time constant in seconds. Larger is "
+                    "smoother but laggier. Unlike a fixed SLERP alpha this holds "
+                    "its meaning when the detection rate changes.",
+    )
+
+    ekf_gate_chi2_arg = DeclareLaunchArgument(
+        "ekf_gate_chi2",
+        default_value="16.27",
+        description="Chi-square gate on the 3-DoF position innovation. "
+                    "11.34 = 99 pct, 16.27 = 99.9 pct. Lower rejects harder.",
+    )
+
+    single_view_noise_scale_arg = DeclareLaunchArgument(
+        "single_view_noise_scale",
+        default_value="6.0",
+        description="Measurement-noise multiplier when only one camera sees the "
+                    "tag, so a single-view PnP fix cannot yank the estimate the "
+                    "way a 3-view triangulation can.",
+    )
+
+    use_ippe_square_arg = DeclareLaunchArgument(
+        "use_ippe_square",
+        default_value="true",
+        description="Use cv::SOLVEPNP_IPPE_SQUARE instead of SOLVEPNP_ITERATIVE. "
+                    "Avoids the two-fold ambiguity that makes a planar tag flip "
+                    "between mirrored poses.",
+    )
+
     # Virtual camera intrinsics. -1.0 means "derive from resolution + FOV",
     # which is what you want unless you are matching a real calibrated camera.
     fx_arg = DeclareLaunchArgument("fx", default_value="-1.0")
@@ -125,6 +157,11 @@ def generate_launch_description():
                 "tag_size": LaunchConfiguration("tag_size"),
                 "ekf_process_noise": LaunchConfiguration("ekf_process_noise"),
                 "ekf_measurement_noise": LaunchConfiguration("ekf_measurement_noise"),
+                "rotation_tau": LaunchConfiguration("rotation_tau"),
+                "ekf_gate_chi2": LaunchConfiguration("ekf_gate_chi2"),
+                "single_view_noise_scale":
+                    LaunchConfiguration("single_view_noise_scale"),
+                "use_ippe_square": LaunchConfiguration("use_ippe_square"),
             }
         ],
     )
@@ -198,6 +235,10 @@ def generate_launch_description():
         camera_model_arg,
         ekf_process_noise_arg,
         ekf_measurement_noise_arg,
+        rotation_tau_arg,
+        ekf_gate_chi2_arg,
+        single_view_noise_scale_arg,
+        use_ippe_square_arg,
         fx_arg,
         fy_arg,
         cx_arg,

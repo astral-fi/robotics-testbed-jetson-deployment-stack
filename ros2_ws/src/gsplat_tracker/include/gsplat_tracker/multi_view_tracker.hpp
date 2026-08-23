@@ -71,6 +71,18 @@ struct EkfState
   rclcpp::Time last_update_time;
   bool initialized = false;
   Eigen::Quaterniond smoothed_q = Eigen::Quaterniond::Identity();
+
+  /// Newest detection stamp already folded into this state. Guards against
+  /// re-consuming the same detection on every timer tick now that the
+  /// window genuinely slides instead of being drained.
+  rclcpp::Time last_measurement_stamp;
+
+  /// Consecutive gated-out measurements. A filter that has diverged will
+  /// reject everything forever, so past a limit we force a reset.
+  int consecutive_rejects = 0;
+
+  /// Consecutive rotation measurements rejected as implausible jumps.
+  int consecutive_rot_rejects = 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,10 +135,14 @@ private:
   void ekfPredict(EkfState & state, double dt) const;
 
   /// Measurement update with a new position observation.
-  void ekfUpdate(
+  /// \param meas_noise  per-measurement variance; scaled by view count so a
+  ///                    single-view PnP fix is trusted less than a 3-view fix.
+  /// \return false if the measurement was gated out as an outlier.
+  bool ekfUpdate(
     EkfState & state,
     const Eigen::Vector3d & z_pos,
-    const rclcpp::Time & stamp);
+    const rclcpp::Time & stamp,
+    double meas_noise);
 
   // ── Utilities ─────────────────────────────────────────────────────────────
 
@@ -158,8 +174,32 @@ private:
   double ekf_process_noise_;
   double ekf_measurement_noise_;
 
+  // ── Robustness / smoothing tuning ───────────────────────────────────────
+  /// Chi-square gate on the position innovation (3 DoF). 11.34 = 99%,
+  /// 16.27 = 99.9%. Measurements beyond this are discarded as outliers.
+  double ekf_gate_chi2_;
+  /// Consecutive rejections tolerated before the filter is force-reset.
+  int ekf_max_rejects_;
+  /// Measurement-noise multiplier when only one camera saw the tag.
+  double single_view_noise_scale_;
+  /// Time constant (seconds) for orientation smoothing. Replaces the old
+  /// fixed 0.1 SLERP alpha, which changed meaning with the update rate.
+  double rotation_tau_;
+  /// Orientation steps larger than this (degrees) are treated as a PnP
+  /// ambiguity flip rather than real motion, and rejected.
+  double rotation_max_step_deg_;
+  /// Consecutive rotation rejections tolerated before accepting the jump.
+  int rotation_max_rejects_;
+  /// Use cv::SOLVEPNP_IPPE_SQUARE (planar-square specific, no two-fold
+  /// ambiguity) instead of SOLVEPNP_ITERATIVE.
+  bool use_ippe_square_;
+
   // Pre-allocated for solvePnP (H2 fix: avoids per-frame heap allocation)
   std::vector<cv::Point3d> obj_pts_;
+  /// Same corners reordered for SOLVEPNP_IPPE_SQUARE, which requires
+  /// [(-h,+h), (+h,+h), (+h,-h), (-h,-h)]. Image points are permuted to
+  /// match, preserving the model-to-detector correspondence.
+  std::vector<cv::Point3d> obj_pts_ippe_;
   cv::Mat dist_coeffs_;
 
   // ROS interface

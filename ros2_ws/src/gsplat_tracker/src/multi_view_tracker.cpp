@@ -60,11 +60,41 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
   for (int i = 0; i < NUM_CORNERS; ++i) {
     obj_pts_[i] = cv::Point3d(model[i].x(), model[i].y(), model[i].z());
   }
+
+  // SOLVEPNP_IPPE_SQUARE mandates the order
+  //   [(-h,+h,0), (+h,+h,0), (+h,-h,0), (-h,-h,0)]
+  // while buildTagModel() emits [(-h,-h), (-h,+h), (+h,+h), (+h,-h)].
+  // IPPE index i therefore corresponds to model index (i + 1) % 4, and the
+  // image points are permuted by the same rule so correspondence survives.
+  obj_pts_ippe_.resize(NUM_CORNERS);
+  for (int i = 0; i < NUM_CORNERS; ++i) {
+    const auto & m = model[(i + 1) % NUM_CORNERS];
+    obj_pts_ippe_[i] = cv::Point3d(m.x(), m.y(), m.z());
+  }
+
   dist_coeffs_ = cv::Mat::zeros(4, 1, CV_64F);
 
   // ── EKF tuning ──────────────────────────────────────────────────────────
   ekf_process_noise_     = this->get_parameter("ekf_process_noise").as_double();
   ekf_measurement_noise_ = this->get_parameter("ekf_measurement_noise").as_double();
+
+  ekf_gate_chi2_           = this->get_parameter("ekf_gate_chi2").as_double();
+  ekf_max_rejects_         = this->get_parameter("ekf_max_rejects").as_int();
+  single_view_noise_scale_ = this->get_parameter("single_view_noise_scale").as_double();
+  rotation_tau_            = this->get_parameter("rotation_tau").as_double();
+  rotation_max_step_deg_   = this->get_parameter("rotation_max_step_deg").as_double();
+  rotation_max_rejects_    = this->get_parameter("rotation_max_rejects").as_int();
+  use_ippe_square_         = this->get_parameter("use_ippe_square").as_bool();
+
+  if (rotation_tau_ <= 0.0) {
+    throw std::invalid_argument("rotation_tau must be > 0");
+  }
+
+  RCLCPP_INFO(this->get_logger(),
+    "Robustness: gate_chi2=%.2f single_view_scale=%.1f rot_tau=%.2fs "
+    "rot_max_step=%.0fdeg pnp=%s",
+    ekf_gate_chi2_, single_view_noise_scale_, rotation_tau_,
+    rotation_max_step_deg_, use_ippe_square_ ? "IPPE_SQUARE" : "ITERATIVE");
 
   // ── Callback group: Reentrant allows concurrent execution ─────────────
   cb_group_ = this->create_callback_group(
@@ -127,6 +157,26 @@ void MultiViewTracker::declareParameters()
   this->declare_parameter<double>("ekf_process_noise", 0.01);
   this->declare_parameter<double>("ekf_measurement_noise", 0.05);
   this->declare_parameter<bool>("gsplat_opengl_convention", false);
+
+  // ── Robustness / smoothing ──────────────────────────────────────────────
+  // Chi-square gate on the 3-DoF position innovation: 11.34 = 99%,
+  // 16.27 = 99.9%. Default is deliberately permissive — it should discard
+  // gross outliers (mis-detections, PnP flips) without fighting real motion.
+  this->declare_parameter<double>("ekf_gate_chi2", 16.27);
+  this->declare_parameter<int>("ekf_max_rejects", 10);
+  // A single-camera PnP fix is far less accurate than 3-view triangulation,
+  // so it must not enter the filter with the same weight.
+  this->declare_parameter<double>("single_view_noise_scale", 6.0);
+  // Orientation smoothing time constant. tau=0.3 s at a 50 ms tick gives
+  // alpha ~= 0.15; unlike the old fixed alpha it holds its meaning when the
+  // update rate changes.
+  this->declare_parameter<double>("rotation_tau", 0.3);
+  this->declare_parameter<double>("rotation_max_step_deg", 45.0);
+  this->declare_parameter<int>("rotation_max_rejects", 5);
+  // SOLVEPNP_IPPE_SQUARE is purpose-built for square planar markers and does
+  // not suffer the two-fold ambiguity that makes ITERATIVE flip between
+  // mirrored poses on a coplanar 4-point target.
+  this->declare_parameter<bool>("use_ippe_square", true);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -240,21 +290,43 @@ void MultiViewTracker::windowEvaluationCallback()
   const rclcpp::Time now = this->now();
   const auto model_corners = buildTagModel();
 
-  // ── Swap out the cache under lock to minimise hold time ───────────────
+  // ── Age out the window under lock, then take a copy ───────────────────
+  //
+  // This used to swap() the cache, draining it on every 50 ms tick. That made
+  // the 200 ms WINDOW_SEC purely decorative: two cameras only ever fused if
+  // their detections happened to land in the same tick, so with unsynchronised
+  // cameras most frames fell through to single-view solvePnP. Alternating
+  // between 3-view triangulation and single-view PnP — which have very
+  // different error characteristics — was itself a major source of jitter.
+  //
+  // Now the window genuinely slides: entries persist for WINDOW_SEC and are
+  // pruned by age. Re-consuming the same detection is prevented per tag by
+  // EkfState::last_measurement_stamp rather than by destroying the evidence.
   std::map<int, std::vector<CameraDetection>> local_cache;
   {
     std::lock_guard<std::mutex> lock(cache_mutex_);
-    local_cache.swap(window_cache_);
+    for (auto it = window_cache_.begin(); it != window_cache_.end(); ) {
+      auto & dets = it->second;
+      dets.erase(
+        std::remove_if(dets.begin(), dets.end(),
+          [&](const CameraDetection & d) {
+            return std::abs((now - d.stamp).seconds()) > WINDOW_SEC;
+          }),
+        dets.end());
+      if (dets.empty()) {
+        it = window_cache_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    local_cache = window_cache_;
   }
 
-  // ── DIAGNOSTIC: log cache contents before pruning ─────────────────────
-  {
+  if (!local_cache.empty()) {
     size_t total_dets = 0;
     for (const auto & [tid, dets] : local_cache) total_dets += dets.size();
-    if (total_dets > 0) {
-      RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-        "DIAG: cache has %zu tags, %zu total detections", local_cache.size(), total_dets);
-    }
+    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+      "window: %zu tags, %zu detections", local_cache.size(), total_dets);
   }
 
   // Collect poses to publish OUTSIDE the ekf_mutex_ (H1 fix: never
@@ -262,9 +334,8 @@ void MultiViewTracker::windowEvaluationCallback()
   std::vector<geometry_msgs::msg::PoseStamped> poses_to_publish;
 
   for (auto & [tag_id, detections] : local_cache) {
-    size_t before_prune = detections.size();
-
     // ── Keep only the most recent detection per camera ────────────────
+    // (Ageing already happened against the shared window above.)
     std::map<int, CameraDetection> unique_cams;
     for (const auto & d : detections) {
       auto it = unique_cams.find(d.camera_id);
@@ -277,23 +348,29 @@ void MultiViewTracker::windowEvaluationCallback()
       detections.push_back(d);
     }
 
-    // ── Prune stale detections outside the window ──────────────────────
-    detections.erase(
-      std::remove_if(detections.begin(), detections.end(),
-        [&](const CameraDetection & d) {
-          return std::abs((now - d.stamp).seconds()) > WINDOW_SEC;
-        }),
-      detections.end());
-
-    if (before_prune > 0 && detections.empty()) {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-        "DIAG: Tag %d — ALL %zu detections pruned as stale!", tag_id, before_prune);
-    }
-
     if (detections.empty()) continue;
 
-    Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
+    // ── Newest detection in this batch drives the filter timestamp ─────
     rclcpp::Time best_stamp = detections.front().stamp;
+    for (const auto & d : detections) {
+      if (d.stamp > best_stamp) best_stamp = d.stamp;
+    }
+
+    // ── Skip tags with no new evidence since the last update ───────────
+    // Without this the sliding window would re-feed the same measurement on
+    // every tick, artificially collapsing the covariance and making the
+    // filter over-confident in stale data.
+    {
+      std::lock_guard<std::mutex> lock(ekf_mutex_);
+      const auto it = ekf_states_.find(tag_id);
+      if (it != ekf_states_.end() && it->second.initialized &&
+          best_stamp <= it->second.last_measurement_stamp)
+      {
+        continue;
+      }
+    }
+
+    Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
     bool valid = false;
 
     if (detections.size() >= 2) {
@@ -359,6 +436,18 @@ void MultiViewTracker::windowEvaluationCallback()
 
     if (!valid) continue;
 
+    // ── Weight the measurement by how it was obtained ───────────────────
+    // 3-view DLT triangulation is far tighter than a single-camera PnP fix;
+    // feeding both in with identical R is what let single-view frames yank
+    // the estimate around.
+    const size_t n_views = detections.size();
+    double meas_noise = ekf_measurement_noise_;
+    if (n_views == 1) {
+      meas_noise *= single_view_noise_scale_;
+    } else if (n_views >= 3) {
+      meas_noise *= 0.5;
+    }
+
     // ── EKF smooth the position (minimised critical section — H1 fix) ───
     {
       std::lock_guard<std::mutex> lock(ekf_mutex_);
@@ -369,23 +458,66 @@ void MultiViewTracker::windowEvaluationCallback()
         state.x.tail<3>().setZero();
         state.P = Eigen::Matrix<double, 6, 6>::Identity() * 1.0;
         state.last_update_time = best_stamp;
+        state.last_measurement_stamp = best_stamp;
         state.smoothed_q = Eigen::Quaterniond(pose.rotation());
+        state.consecutive_rejects = 0;
+        state.consecutive_rot_rejects = 0;
         state.initialized = true;
       } else {
         const double dt = (best_stamp - state.last_update_time).seconds();
         if (dt > 0.0 && dt < 1.0) {
           ekfPredict(state, dt);
         }
-        ekfUpdate(state, pose.translation(), best_stamp);
-        
-        // Spherical Linear Interpolation (SLERP) for rotation smoothing
-        Eigen::Quaterniond raw_q(pose.rotation());
-        if (state.smoothed_q.dot(raw_q) < 0.0) {
-          raw_q.coeffs() = -raw_q.coeffs(); // Ensure shortest path
+
+        const bool accepted =
+          ekfUpdate(state, pose.translation(), best_stamp, meas_noise);
+        state.last_measurement_stamp = best_stamp;
+
+        if (!accepted) {
+          static rclcpp::Clock steady_clock_gate(RCL_STEADY_TIME);
+          RCLCPP_WARN_THROTTLE(this->get_logger(), steady_clock_gate, 1000,
+            "Tag %d: position outlier gated out (%d consecutive, %zu view(s))",
+            tag_id, state.consecutive_rejects, n_views);
         }
-        // Alpha 0.1 means 10% new measurement, 90% history
-        state.smoothed_q = state.smoothed_q.slerp(0.1, raw_q);
-        state.smoothed_q.normalize();
+
+        // ── Orientation: reject flips, then smooth with a real time constant
+        // A rejected position measurement almost always carries a rubbish
+        // orientation too, so orientation only advances on accepted frames.
+        if (accepted) {
+          Eigen::Quaterniond raw_q(pose.rotation());
+          if (state.smoothed_q.dot(raw_q) < 0.0) {
+            raw_q.coeffs() = -raw_q.coeffs();  // shortest path
+          }
+
+          const double step_rad = state.smoothed_q.angularDistance(raw_q);
+          const double max_step_rad = rotation_max_step_deg_ * M_PI / 180.0;
+
+          if (step_rad > max_step_rad &&
+              state.consecutive_rot_rejects < rotation_max_rejects_)
+          {
+            // A single large step is far more likely a PnP ambiguity flip
+            // than genuine motion. Blending it in at a fixed alpha — as the
+            // old code did — is what produced the visible swinging.
+            ++state.consecutive_rot_rejects;
+            static rclcpp::Clock steady_clock_rot(RCL_STEADY_TIME);
+            RCLCPP_WARN_THROTTLE(this->get_logger(), steady_clock_rot, 1000,
+              "Tag %d: rotation jump %.1f deg rejected (%d consecutive)",
+              tag_id, step_rad * 180.0 / M_PI, state.consecutive_rot_rejects);
+          } else {
+            // Sustained large steps mean the tag really did move: stop
+            // fighting it and let the filter follow.
+            state.consecutive_rot_rejects = 0;
+
+            // alpha = 1 - exp(-dt / tau) keeps the smoothing time constant
+            // fixed in seconds, so a change in update rate no longer silently
+            // changes how heavily orientation is filtered.
+            const double eff_dt = (dt > 0.0 && dt < 1.0) ? dt : 0.05;
+            const double alpha =
+              1.0 - std::exp(-eff_dt / rotation_tau_);
+            state.smoothed_q = state.smoothed_q.slerp(alpha, raw_q);
+            state.smoothed_q.normalize();
+          }
+        }
       }
 
       // Copy smoothed result before releasing lock.
@@ -544,10 +676,27 @@ Eigen::Isometry3d MultiViewTracker::solvePnPFallback(
     img_pts[i] = cv::Point2d(det.corners_px[i].x(), det.corners_px[i].y());
   }
 
-  // ── Solve PnP (ITERATIVE is mathematically stable for 4 planar points) ──
+  // ── Solve PnP ───────────────────────────────────────────────────────
+  // ITERATIVE on four coplanar points has a two-fold ambiguity: the mirrored
+  // pose fits the projection nearly as well, and the solver can hop between
+  // them frame to frame. That shows up as a tag reading tens of degrees off
+  // true and flickering. IPPE_SQUARE is derived specifically for square
+  // planar markers and returns the lower-reprojection-error solution.
   cv::Mat rvec, tvec;
-  bool ok = cv::solvePnP(obj_pts_, img_pts, cal.K_cv, dist_coeffs_,
-                          rvec, tvec, false, cv::SOLVEPNP_ITERATIVE);
+  bool ok;
+  if (use_ippe_square_) {
+    // Permute image points into IPPE's mandated corner order, matching the
+    // permutation applied to obj_pts_ippe_ at construction.
+    std::array<cv::Point2d, NUM_CORNERS> ippe_pts;
+    for (int i = 0; i < NUM_CORNERS; ++i) {
+      ippe_pts[i] = img_pts[(i + 1) % NUM_CORNERS];
+    }
+    ok = cv::solvePnP(obj_pts_ippe_, ippe_pts, cal.K_cv, dist_coeffs_,
+                      rvec, tvec, false, cv::SOLVEPNP_IPPE_SQUARE);
+  } else {
+    ok = cv::solvePnP(obj_pts_, img_pts, cal.K_cv, dist_coeffs_,
+                      rvec, tvec, false, cv::SOLVEPNP_ITERATIVE);
+  }
   if (!ok) {
     // M3 fix: throttle to 1 Hz to prevent log flooding.
     static rclcpp::Clock steady_clock_pnp(RCL_STEADY_TIME);
@@ -614,27 +763,56 @@ void MultiViewTracker::ekfPredict(EkfState & state, double dt) const
 //
 // H = | I₃  0₃ |    R = r · I₃
 // ─────────────────────────────────────────────────────────────────────────────
-void MultiViewTracker::ekfUpdate(
+bool MultiViewTracker::ekfUpdate(
   EkfState & state,
   const Eigen::Vector3d & z_pos,
-  const rclcpp::Time & stamp)
+  const rclcpp::Time & stamp,
+  double meas_noise)
 {
   // ── Measurement matrix H (observe position only) ──────────────────────
   Eigen::Matrix<double, 3, 6> H = Eigen::Matrix<double, 3, 6>::Zero();
   H.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity();
 
-  // ── Measurement noise R ───────────────────────────────────────────────
-  Eigen::Matrix3d R_meas =
-    Eigen::Matrix3d::Identity() * ekf_measurement_noise_;
+  // ── Measurement noise R (per-measurement, set by the caller) ──────────
+  Eigen::Matrix3d R_meas = Eigen::Matrix3d::Identity() * meas_noise;
 
   // ── Innovation ────────────────────────────────────────────────────────
   Eigen::Vector3d y = z_pos - H * state.x;
 
   // ── Innovation covariance ─────────────────────────────────────────────
   Eigen::Matrix3d S = H * state.P * H.transpose() + R_meas;
+  const Eigen::Matrix3d S_inv = S.inverse();
+
+  // ── Chi-square gate on the normalised innovation ──────────────────────
+  // Squared Mahalanobis distance is chi-square distributed with 3 DoF. A
+  // mis-detected tag or a flipped PnP solution lands far out in that tail;
+  // previously any such value went straight into the state at full weight.
+  const double mahalanobis2 = y.dot(S_inv * y);
+
+  if (mahalanobis2 > ekf_gate_chi2_) {
+    ++state.consecutive_rejects;
+
+    if (state.consecutive_rejects < ekf_max_rejects_) {
+      // Keep coasting on the prediction; do not fold the outlier in.
+      state.last_update_time = stamp;
+      return false;
+    }
+
+    // Persistent rejection means the filter, not the measurement, is wrong
+    // (a teleport, a long dropout, or divergence). Re-seed from the
+    // observation rather than gating ourselves into a permanent freeze.
+    state.x.head<3>() = z_pos;
+    state.x.tail<3>().setZero();
+    state.P = Eigen::Matrix<double, 6, 6>::Identity();
+    state.consecutive_rejects = 0;
+    state.last_update_time = stamp;
+    return true;
+  }
+
+  state.consecutive_rejects = 0;
 
   // ── Kalman gain ───────────────────────────────────────────────────────
-  Eigen::Matrix<double, 6, 3> K = state.P * H.transpose() * S.inverse();
+  Eigen::Matrix<double, 6, 3> K = state.P * H.transpose() * S_inv;
 
   // ── State update ──────────────────────────────────────────────────────
   state.x = state.x + K * y;
@@ -645,13 +823,19 @@ void MultiViewTracker::ekfUpdate(
   state.P = IKH * state.P * IKH.transpose() + K * R_meas * K.transpose();
 
   state.last_update_time = stamp;
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Build the known tag model corners (in tag-local frame, z = 0)
 //
-// AprilTag corner ordering (same as isaac_ros_apriltag_interfaces):
-//   0: bottom-left, 1: bottom-right, 2: top-right, 3: top-left
+// AprilTag corner ordering (must match isaac_ros_apriltag_interfaces):
+//   0: bottom-left, 1: top-left, 2: top-right, 3: bottom-right
+// NOTE: the previous comment here read "bottom-left, bottom-right, top-right,
+// top-left", which is the reverse winding and does NOT describe the code
+// below. If the detector's true order ever turns out to be that reversed
+// winding, the recovered rotation is mirrored — worth verifying against a
+// tag at a known attitude.
 //
 // Origin at tag centre, side length = 2 * tag_half_size_
 // ─────────────────────────────────────────────────────────────────────────────
