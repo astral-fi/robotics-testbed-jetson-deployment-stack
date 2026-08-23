@@ -68,8 +68,10 @@ class GsplatRendererNode(Node):
         # ── Declare parameters ───────────────────────────────────────────
         self.declare_parameter("model_checkpoint", "/workspace/data/model.ckpt")
         # Quaternion component order as stored in the checkpoint.
-        # gsplat requires (w, x, y, z); many exporters write (x, y, z, w).
-        self.declare_parameter("quat_order", "xyzw")
+        # gsplat requires (w, x, y, z). This checkpoint already stores wxyz —
+        # verified by rendering both orders at a live tracker pose. Set to
+        # "xyzw" only for a checkpoint that genuinely stores (x, y, z, w).
+        self.declare_parameter("quat_order", "wxyz")
         self.declare_parameter("render_width", 1280)
         self.declare_parameter("render_height", 720)
         # Virtual camera intrinsics (pinhole)

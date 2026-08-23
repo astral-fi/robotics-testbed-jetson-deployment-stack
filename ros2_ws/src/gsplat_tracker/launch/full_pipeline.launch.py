@@ -39,9 +39,9 @@ def generate_launch_description():
 
     quat_order_arg = DeclareLaunchArgument(
         "quat_order",
-        default_value="xyzw",
+        default_value="wxyz",
         description="Quaternion order stored in the checkpoint: 'wxyz' or 'xyzw'. "
-                    "gsplat needs wxyz; a wrong setting renders as a uniform haze.",
+                    "gsplat needs wxyz; a wrong setting renders as a spiky haze.",
     )
 
     tag_size_arg = DeclareLaunchArgument(
