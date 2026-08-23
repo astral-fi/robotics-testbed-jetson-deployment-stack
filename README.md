@@ -7,7 +7,7 @@ Localization & XR rendering layer of the **3DGS XR Testbed for Robots** project.
 > targets an RTX 4090 and `diagnose_ros2_network.sh` explicitly diagnoses ROS 2
 > DDS connectivity *to the Jetson's AprilTag publisher container*. The
 > Jetson-side camera + AprilTag detection code lives in
-> [`multi-camera-launch-pipeline`](#related-repositories); this repo consumes
+> [`multi-camera-launch-pipeline`](https://github.com/AbhayTrehan/multi-camera-launch-pipeline); this repo consumes
 > its output.
 
 This stack subscribes to the per-camera AprilTag detections published by the
@@ -22,7 +22,7 @@ rendered frame back over the network as a live XR video feed.
 This repo implements the **Localization & XR Rendering Layer** and the
 **Streaming Output** stage of the diagram above — everything downstream of the
 Zenoh Communication Layer that carries pose observations in from the Jetson
-rig in [`multi-camera-launch-pipeline`](#related-repositories).
+rig in [`multi-camera-launch-pipeline`](https://github.com/AbhayTrehan/multi-camera-launch-pipeline).
 
 ## Pipeline
 
@@ -154,7 +154,7 @@ robotics-testbed-jetson-deployment-stack/
 - ROS 2 Humble
 - PyTorch 2.3.1 (cu121) + [`gsplat`](https://github.com/nerfstudio-project/gsplat)
 - Network connectivity (Zenoh bridge) to the Jetson running
-  [`multi-camera-launch-pipeline`](#related-repositories)
+  [`multi-camera-launch-pipeline`](https://github.com/AbhayTrehan/multi-camera-launch-pipeline)
 
 ## Usage
 
@@ -177,8 +177,8 @@ To sanity-check the pipeline without real cameras, run
 
 Part of the **3DGS XR Testbed for Robots** project, alongside:
 
-- **`multi-camera-launch-pipeline`** — the Jetson-side edge perception stack
+- **[`multi-camera-launch-pipeline`](https://github.com/AbhayTrehan/multi-camera-launch-pipeline)** — the Jetson-side edge perception stack
   (FLIR camera drivers + GPU AprilTag detection) whose `tag_detections`
   topics feed the multi-view tracker in this repo.
-- **`milpsolutionforcameraplacement`** — the MILP optimizer used to choose the
+- **[`milpsolutionforcameraplacement`](https://github.com/AbhayTrehan/camera-placement-milp)** — the MILP optimizer used to choose the
   camera rig's layout in the first place.
