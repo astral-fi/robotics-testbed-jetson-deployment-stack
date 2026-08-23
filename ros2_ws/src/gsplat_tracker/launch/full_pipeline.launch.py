@@ -52,9 +52,17 @@ def generate_launch_description():
 
     camera_height_arg = DeclareLaunchArgument(
         "camera_height",
-        default_value="0.2",
-        description="Virtual camera elevation above the tag, in metres, measured "
-                    "along the WORLD vertical (floor normal) — not the tag normal.",
+        default_value="0.0",
+        description="Extra virtual camera elevation in metres along the WORLD "
+                    "vertical, applied on top of pose_offset. Defaults to 0.0 "
+                    "because pose_offset already carries the rig height.",
+    )
+
+    pose_offset_frame_arg = DeclareLaunchArgument(
+        "pose_offset_frame",
+        default_value="world",
+        description="Frame for pose_offset: 'tag' (rotates with the robot — a "
+                    "physical camera mount) or 'world' (fixed world axes).",
     )
 
     render_width_arg = DeclareLaunchArgument(
@@ -133,6 +141,7 @@ def generate_launch_description():
                 "model_checkpoint": LaunchConfiguration("model_checkpoint"),
                 "quat_order": LaunchConfiguration("quat_order"),
                 "camera_height": LaunchConfiguration("camera_height"),
+                "pose_offset_frame": LaunchConfiguration("pose_offset_frame"),
                 "render_width": LaunchConfiguration("render_width"),
                 "render_height": LaunchConfiguration("render_height"),
                 "camera_hfov_deg": LaunchConfiguration("camera_hfov_deg"),
@@ -181,6 +190,7 @@ def generate_launch_description():
         model_checkpoint_arg,
         quat_order_arg,
         camera_height_arg,
+        pose_offset_frame_arg,
         tag_size_arg,
         render_width_arg,
         render_height_arg,

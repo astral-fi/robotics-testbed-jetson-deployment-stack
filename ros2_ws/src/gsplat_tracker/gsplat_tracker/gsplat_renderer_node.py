@@ -82,9 +82,22 @@ class GsplatRendererNode(Node):
         # verified by rendering both orders at a live tracker pose. Set to
         # "xyzw" only for a checkpoint that genuinely stores (x, y, z, w).
         self.declare_parameter("quat_order", "wxyz")
-        # Virtual camera elevation above the tag, measured along the WORLD
-        # vertical (floor normal) rather than the tag normal.
-        self.declare_parameter("camera_height", 0.2)
+        # Extra virtual camera elevation along the WORLD vertical (floor
+        # normal), applied on top of pose_offset. Defaults to 0.0 because
+        # pose_offset already carries the full rig height in its z term.
+        self.declare_parameter("camera_height", 0.0)
+
+        # Fixed translation applied to every /robot/fused_pose sample, e.g. the
+        # rig offset from the AprilTag to the camera mount. [x, y, z] in metres.
+        self.declare_parameter("pose_offset", [0.41, -0.3, 0.4])
+
+        # Frame the offset is expressed in:
+        #   "tag"   — the tag/robot body frame. Rotates with the robot, so it
+        #             stays fixed relative to the chassis. Correct for a
+        #             physical camera mount. Note a tilted tag tilts it too.
+        #   "world" — fixed world axes. Never rotates with the robot. Correct
+        #             for correcting a world-frame misalignment.
+        self.declare_parameter("pose_offset_frame", "world")
         # Output resolution. Defaults approximate a JetRacer CSI camera feed
         # (540p) rather than the 720p the node originally rendered.
         self.declare_parameter("render_width", 960)
@@ -168,6 +181,27 @@ class GsplatRendererNode(Node):
         # Keep the alignment matrix resident on the GPU — _rasterise() runs at
         # 60 FPS and re-uploading a 4x4 every frame is pure overhead.
         self._T_cam_to_tag = T_CAM_TO_TAG.to(self.device)
+
+        # ── Fixed pose offset ────────────────────────────────────────────
+        offset = [float(v) for v in self.get_parameter("pose_offset").value]
+        if len(offset) != 3:
+            raise ValueError(
+                f"pose_offset must be [x, y, z], got {offset!r}"
+            )
+        self.pose_offset_frame = str(self.get_parameter("pose_offset_frame").value)
+        if self.pose_offset_frame not in ("tag", "world"):
+            raise ValueError(
+                f"pose_offset_frame must be 'tag' or 'world', "
+                f"got {self.pose_offset_frame!r}"
+            )
+        self._pose_offset = torch.tensor(
+            offset, dtype=torch.float32, device=self.device
+        )
+        self._has_pose_offset = any(v != 0.0 for v in offset)
+        self.get_logger().info(
+            f"Pose offset: [{offset[0]:+.3f}, {offset[1]:+.3f}, {offset[2]:+.3f}] m "
+            f"in the {self.pose_offset_frame} frame"
+        )
 
         # ── Load gsplat model ────────────────────────────────────────────
         self._load_model()
@@ -388,6 +422,17 @@ class GsplatRendererNode(Node):
         """
         # ── Move pose to GPU if not already there ────────────────────────
         pose_gpu = pose_T.to(self.device)
+
+        # ── Apply the fixed rig offset to the tracked pose ───────────────
+        # "tag" rotates the offset into world space by the tag's own attitude,
+        # so it stays fixed relative to the chassis as the robot turns.
+        # "world" adds it along fixed world axes, ignoring robot heading.
+        if self._has_pose_offset:
+            pose_gpu = pose_gpu.clone()
+            if self.pose_offset_frame == "tag":
+                pose_gpu[:3, 3] += pose_gpu[:3, :3] @ self._pose_offset
+            else:
+                pose_gpu[:3, 3] += self._pose_offset
 
         # ── Compute camera-to-world in gsplat coordinate frame ───────────
         #    C2W = T_tag_to_world × T_cam_to_tag   (rotation alignment only)
