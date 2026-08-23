@@ -20,6 +20,8 @@
 #   W2C = (T_robot_in_gsplat × T_ros_to_graphics)⁻¹
 # ─────────────────────────────────────────────────────────────────────────────
 
+import inspect
+import math
 import queue
 import threading
 import time
@@ -49,14 +51,22 @@ from gsplat import rasterization
 #   Camera Z (fwd)  → Tag Y (fwd)
 #   Camera Y (down) → Tag -Z (down)
 #   Camera X (right)→ Tag X (right)
-# And add a 0.2m Z-offset to elevate the camera above the floor.
+#
+# NOTE: rotation ONLY — no translation. The camera elevation is applied
+# separately, along the WORLD vertical, in _rasterise(). Putting it here
+# would express the offset in the tag frame, so any tag tilt would both
+# tilt the camera and shorten its rise. A tag reading 16 deg off vertical
+# lifted the camera only 9 cm instead of 20 cm, burying it in the floor.
 # ─────────────────────────────────────────────────────────────────────────────
 T_CAM_TO_TAG = torch.tensor([
     [1.0,  0.0,  0.0, 0.0],
     [0.0,  0.0,  1.0, 0.0],
-    [0.0, -1.0,  0.0, 0.2],
+    [0.0, -1.0,  0.0, 0.0],
     [0.0,  0.0,  0.0, 1.0],
 ], dtype=torch.float32)
+
+# World "up" axis index (REP 103 / this scene: +Z is the floor normal).
+WORLD_UP_AXIS = 2
 
 
 class GsplatRendererNode(Node):
@@ -72,16 +82,33 @@ class GsplatRendererNode(Node):
         # verified by rendering both orders at a live tracker pose. Set to
         # "xyzw" only for a checkpoint that genuinely stores (x, y, z, w).
         self.declare_parameter("quat_order", "wxyz")
-        self.declare_parameter("render_width", 1280)
-        self.declare_parameter("render_height", 720)
-        # Virtual camera intrinsics (pinhole)
-        self.declare_parameter("fx", 600.0)
-        self.declare_parameter("fy", 600.0)
-        self.declare_parameter("cx", 640.0)
-        self.declare_parameter("cy", 360.0)
+        # Virtual camera elevation above the tag, measured along the WORLD
+        # vertical (floor normal) rather than the tag normal.
+        self.declare_parameter("camera_height", 0.2)
+        # Output resolution. Defaults approximate a JetRacer CSI camera feed
+        # (540p) rather than the 720p the node originally rendered.
+        self.declare_parameter("render_width", 960)
+        self.declare_parameter("render_height", 540)
+
+        # Field of view drives the focal length, so changing resolution alone
+        # can never silently change how wide the virtual camera sees.
+        # JetRacer IMX219 variants: ~77 (standard), ~136 or ~160 (wide/fisheye).
+        self.declare_parameter("camera_hfov_deg", 93.7)
+
+        # "pinhole" or "fisheye" — fisheye needs a gsplat build that supports
+        # the camera_model argument; the node checks and warns if it does not.
+        self.declare_parameter("camera_model", "pinhole")
+
+        # Explicit intrinsics override camera_hfov_deg. Leave at -1.0 to derive
+        # fx/fy from the FOV and put the principal point at the image centre.
+        self.declare_parameter("fx", -1.0)
+        self.declare_parameter("fy", -1.0)
+        self.declare_parameter("cx", -1.0)
+        self.declare_parameter("cy", -1.0)
 
         self.width = self.get_parameter("render_width").value
         self.height = self.get_parameter("render_height").value
+        self.camera_height = float(self.get_parameter("camera_height").value)
 
         # ── CUDA device ──────────────────────────────────────────────────
         assert torch.cuda.is_available(), "CUDA is required for gsplat rendering"
@@ -91,16 +118,56 @@ class GsplatRendererNode(Node):
         )
 
         # ── Build virtual camera intrinsics matrix K (3×3) ──────────────
-        fx = self.get_parameter("fx").value
-        fy = self.get_parameter("fy").value
-        cx = self.get_parameter("cx").value
-        cy = self.get_parameter("cy").value
+        # fx/fy/cx/cy left at -1.0 are derived from the resolution and FOV, so
+        # the framing stays consistent whenever render_width/height change.
+        hfov_deg = float(self.get_parameter("camera_hfov_deg").value)
+        if not 1.0 < hfov_deg < 179.0:
+            raise ValueError(
+                f"camera_hfov_deg must be in (1, 179), got {hfov_deg}"
+            )
+
+        fx = float(self.get_parameter("fx").value)
+        fy = float(self.get_parameter("fy").value)
+        cx = float(self.get_parameter("cx").value)
+        cy = float(self.get_parameter("cy").value)
+
+        if fx <= 0.0:
+            fx = (self.width / 2.0) / math.tan(math.radians(hfov_deg) / 2.0)
+        if fy <= 0.0:
+            fy = fx                      # square pixels
+        if cx < 0.0:
+            cx = self.width / 2.0
+        if cy < 0.0:
+            cy = self.height / 2.0
 
         self.K = torch.tensor([
             [fx, 0.0, cx],
             [0.0, fy, cy],
             [0.0, 0.0, 1.0],
         ], dtype=torch.float32, device=self.device).unsqueeze(0)  # [1, 3, 3]
+
+        # ── Camera projection model ─────────────────────────────────────
+        self.camera_model = str(self.get_parameter("camera_model").value)
+        supported = "camera_model" in inspect.signature(rasterization).parameters
+        if self.camera_model != "pinhole" and not supported:
+            self.get_logger().warn(
+                f"gsplat build does not accept camera_model="
+                f"{self.camera_model!r}; falling back to pinhole"
+            )
+            self.camera_model = "pinhole"
+        self._pass_camera_model = supported and self.camera_model != "pinhole"
+
+        v_hfov = 2.0 * math.degrees(math.atan((self.width / 2.0) / fx))
+        v_vfov = 2.0 * math.degrees(math.atan((self.height / 2.0) / fy))
+        self.get_logger().info(
+            f"Virtual camera: {self.width}x{self.height} {self.camera_model} — "
+            f"fx={fx:.1f} fy={fy:.1f} cx={cx:.1f} cy={cy:.1f} "
+            f"(hfov={v_hfov:.1f} vfov={v_vfov:.1f})"
+        )
+
+        # Keep the alignment matrix resident on the GPU — _rasterise() runs at
+        # 60 FPS and re-uploading a 4x4 every frame is pure overhead.
+        self._T_cam_to_tag = T_CAM_TO_TAG.to(self.device)
 
         # ── Load gsplat model ────────────────────────────────────────────
         self._load_model()
@@ -205,7 +272,6 @@ class GsplatRendererNode(Node):
                 if colors.dim() == 3 and colors.shape[1] == 3 and colors.shape[2] == K:
                     colors = colors.transpose(1, 2)
                 self.colors = colors.contiguous().view(N, K, 3)
-                import math
                 self.sh_degree = int(math.sqrt(K)) - 1
         elif "sh_coefficients" in checkpoint:
             colors = checkpoint["sh_coefficients"].to(self.device).float()
@@ -213,7 +279,6 @@ class GsplatRendererNode(Node):
             if colors.dim() == 3 and colors.shape[1] == 3 and colors.shape[2] == K:
                 colors = colors.transpose(1, 2)
             self.colors = colors.contiguous().view(N, K, 3)
-            import math
             self.sh_degree = int(math.sqrt(K)) - 1
         else:
             raise KeyError(
@@ -314,19 +379,26 @@ class GsplatRendererNode(Node):
 
         Coordinate math:
           T_tag_to_world = pose_T (tag pose in OpenCV world frame)
-          T_cam_to_tag = alignment + 0.2m elevation matrix
+          T_cam_to_tag = alignment rotation ONLY
           C2W = T_tag_to_world @ T_cam_to_tag
+          C2W[up] += camera_height        (elevation along the world vertical)
           W2C = C2W⁻¹
 
         gsplat.rasterization() expects viewmats as W2C [C, 4, 4].
         """
         # ── Move pose to GPU if not already there ────────────────────────
         pose_gpu = pose_T.to(self.device)
-        T_cam_to_tag_gpu = T_CAM_TO_TAG.to(self.device)
 
         # ── Compute camera-to-world in gsplat coordinate frame ───────────
-        #    C2W = T_tag_to_world × T_cam_to_tag
-        C2W = pose_gpu @ T_cam_to_tag_gpu
+        #    C2W = T_tag_to_world × T_cam_to_tag   (rotation alignment only)
+        C2W = pose_gpu @ self._T_cam_to_tag
+
+        # ── Elevate along the WORLD vertical, not the tag normal ─────────
+        # Writing straight into the translation column keeps the offset in
+        # world coordinates, so a tilted tag no longer drags the virtual
+        # camera down into the floor geometry.
+        C2W = C2W.clone()
+        C2W[WORLD_UP_AXIS, 3] += self.camera_height
 
         # ── World-to-camera = inverse of C2W ─────────────────────────────
         W2C = torch.inverse(C2W)
@@ -349,6 +421,8 @@ class GsplatRendererNode(Node):
         }
         if self.sh_degree is not None:
             rasterization_kwargs["sh_degree"] = self.sh_degree
+        if self._pass_camera_model:
+            rasterization_kwargs["camera_model"] = self.camera_model
             
         rendered, _, _ = rasterization(**rasterization_kwargs)
 

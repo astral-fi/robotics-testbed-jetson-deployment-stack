@@ -50,16 +50,39 @@ def generate_launch_description():
         description="Physical side length of the AprilTag in metres.",
     )
 
+    camera_height_arg = DeclareLaunchArgument(
+        "camera_height",
+        default_value="0.2",
+        description="Virtual camera elevation above the tag, in metres, measured "
+                    "along the WORLD vertical (floor normal) — not the tag normal.",
+    )
+
     render_width_arg = DeclareLaunchArgument(
         "render_width",
-        default_value="1280",
-        description="Render output width in pixels.",
+        default_value="960",
+        description="Render output width in pixels (540p ~ JetRacer CSI feed).",
     )
 
     render_height_arg = DeclareLaunchArgument(
         "render_height",
-        default_value="720",
+        default_value="540",
         description="Render output height in pixels.",
+    )
+
+    camera_hfov_arg = DeclareLaunchArgument(
+        "camera_hfov_deg",
+        default_value="93.7",
+        description="Horizontal field of view in degrees. Drives fx/fy so that "
+                    "changing resolution never changes framing. JetRacer IMX219 "
+                    "variants are roughly 77 (standard), 136 or 160 (wide).",
+    )
+
+    camera_model_arg = DeclareLaunchArgument(
+        "camera_model",
+        default_value="pinhole",
+        description="Projection model: 'pinhole' or 'fisheye'. Fisheye requires "
+                    "a gsplat build exposing camera_model; the node warns and "
+                    "falls back to pinhole otherwise.",
     )
 
     ekf_process_noise_arg = DeclareLaunchArgument(
@@ -74,11 +97,12 @@ def generate_launch_description():
         description="EKF measurement noise scalar.",
     )
 
-    # Virtual camera intrinsics for the gsplat renderer
-    fx_arg = DeclareLaunchArgument("fx", default_value="600.0")
-    fy_arg = DeclareLaunchArgument("fy", default_value="600.0")
-    cx_arg = DeclareLaunchArgument("cx", default_value="640.0")
-    cy_arg = DeclareLaunchArgument("cy", default_value="360.0")
+    # Virtual camera intrinsics. -1.0 means "derive from resolution + FOV",
+    # which is what you want unless you are matching a real calibrated camera.
+    fx_arg = DeclareLaunchArgument("fx", default_value="-1.0")
+    fy_arg = DeclareLaunchArgument("fy", default_value="-1.0")
+    cx_arg = DeclareLaunchArgument("cx", default_value="-1.0")
+    cy_arg = DeclareLaunchArgument("cy", default_value="-1.0")
 
     # ── Node 1: C++ Multi-View Tracker ───────────────────────────────────
     tracker_node = Node(
@@ -108,8 +132,11 @@ def generate_launch_description():
                 "use_intra_process_comms": True,
                 "model_checkpoint": LaunchConfiguration("model_checkpoint"),
                 "quat_order": LaunchConfiguration("quat_order"),
+                "camera_height": LaunchConfiguration("camera_height"),
                 "render_width": LaunchConfiguration("render_width"),
                 "render_height": LaunchConfiguration("render_height"),
+                "camera_hfov_deg": LaunchConfiguration("camera_hfov_deg"),
+                "camera_model": LaunchConfiguration("camera_model"),
                 "fx": LaunchConfiguration("fx"),
                 "fy": LaunchConfiguration("fy"),
                 "cx": LaunchConfiguration("cx"),
@@ -153,9 +180,12 @@ def generate_launch_description():
         calibration_file_arg,
         model_checkpoint_arg,
         quat_order_arg,
+        camera_height_arg,
         tag_size_arg,
         render_width_arg,
         render_height_arg,
+        camera_hfov_arg,
+        camera_model_arg,
         ekf_process_noise_arg,
         ekf_measurement_noise_arg,
         fx_arg,
