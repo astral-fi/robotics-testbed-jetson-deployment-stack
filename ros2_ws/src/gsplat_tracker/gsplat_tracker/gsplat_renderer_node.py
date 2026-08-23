@@ -67,6 +67,9 @@ class GsplatRendererNode(Node):
 
         # ── Declare parameters ───────────────────────────────────────────
         self.declare_parameter("model_checkpoint", "/workspace/data/model.ckpt")
+        # Quaternion component order as stored in the checkpoint.
+        # gsplat requires (w, x, y, z); many exporters write (x, y, z, w).
+        self.declare_parameter("quat_order", "xyzw")
         self.declare_parameter("render_width", 1280)
         self.declare_parameter("render_height", 720)
         # Virtual camera intrinsics (pinhole)
@@ -160,8 +163,19 @@ class GsplatRendererNode(Node):
         # Extract Gaussian parameters — enforce exact shapes, float32, and contiguity
         self.means = raw_means.to(self.device).float().contiguous().view(N, 3)
         
-        # Quaternions must be [N, 4] and unit-length
+        # Quaternions must be [N, 4], in (w, x, y, z) order, and unit-length.
+        # NOTE: a misordered quaternion still normalises to a valid unit
+        # quaternion, so this cannot be auto-detected — it must be declared.
+        # Getting it wrong rotates every Gaussian arbitrarily, which renders
+        # as a uniform haze with the scene structure still recognisable.
         quats = checkpoint["quats"].to(self.device).float().contiguous().view(N, 4)
+        quat_order = self.get_parameter("quat_order").value
+        if quat_order == "xyzw":
+            quats = torch.roll(quats, shifts=1, dims=-1)
+        elif quat_order != "wxyz":
+            raise ValueError(
+                f"quat_order must be 'wxyz' or 'xyzw', got {quat_order!r}"
+            )
         self.quats = quats / (quats.norm(dim=-1, keepdim=True) + 1e-8)
         
         scales = checkpoint["scales"].to(self.device).float().contiguous().view(N, 3)
@@ -205,6 +219,7 @@ class GsplatRendererNode(Node):
             )
 
         n_gaussians = self.means.shape[0]
+        self.get_logger().info(f"Quaternion order: {quat_order} (gsplat needs wxyz)")
         self.get_logger().info(
             f"Loaded {n_gaussians:,} Gaussians into VRAM "
             f"({self.means.element_size() * self.means.nelement() / 1e6:.1f} MB means)"

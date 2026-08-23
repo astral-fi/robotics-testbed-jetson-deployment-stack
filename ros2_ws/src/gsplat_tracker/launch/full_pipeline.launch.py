@@ -37,6 +37,13 @@ def generate_launch_description():
         description="Path to the trained gsplat model checkpoint.",
     )
 
+    quat_order_arg = DeclareLaunchArgument(
+        "quat_order",
+        default_value="xyzw",
+        description="Quaternion order stored in the checkpoint: 'wxyz' or 'xyzw'. "
+                    "gsplat needs wxyz; a wrong setting renders as a uniform haze.",
+    )
+
     tag_size_arg = DeclareLaunchArgument(
         "tag_size",
         default_value="0.21",
@@ -100,6 +107,7 @@ def generate_launch_description():
             {
                 "use_intra_process_comms": True,
                 "model_checkpoint": LaunchConfiguration("model_checkpoint"),
+                "quat_order": LaunchConfiguration("quat_order"),
                 "render_width": LaunchConfiguration("render_width"),
                 "render_height": LaunchConfiguration("render_height"),
                 "fx": LaunchConfiguration("fx"),
@@ -144,6 +152,7 @@ def generate_launch_description():
         # Arguments
         calibration_file_arg,
         model_checkpoint_arg,
+        quat_order_arg,
         tag_size_arg,
         render_width_arg,
         render_height_arg,
