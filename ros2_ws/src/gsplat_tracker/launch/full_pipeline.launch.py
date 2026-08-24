@@ -102,6 +102,23 @@ def generate_launch_description():
                     "falls back to pinhole otherwise.",
     )
 
+    sync_tolerance_arg = DeclareLaunchArgument(
+        "sync_tolerance",
+        default_value="0.05",
+        description="Max stamp disagreement, in seconds, between camera views "
+                    "before they stop being treated as simultaneous. Views "
+                    "further apart are dropped from the fusion set rather than "
+                    "triangulated into a tag shape that never existed.",
+    )
+
+    max_reproj_error_arg = DeclareLaunchArgument(
+        "max_reproj_error_px",
+        default_value="8.0",
+        description="Discard a fused pose whose RMS reprojection error exceeds "
+                    "this many pixels. Catches mis-ordered corners, degenerate "
+                    "triangulation and PnP ambiguity flips.",
+    )
+
     ekf_process_noise_arg = DeclareLaunchArgument(
         "ekf_process_noise",
         default_value="0.01",
@@ -164,6 +181,8 @@ def generate_launch_description():
                 "use_intra_process_comms": True,
                 "calibration_file": LaunchConfiguration("calibration_file"),
                 "tag_size": LaunchConfiguration("tag_size"),
+                "sync_tolerance": LaunchConfiguration("sync_tolerance"),
+                "max_reproj_error_px": LaunchConfiguration("max_reproj_error_px"),
                 "ekf_process_noise": LaunchConfiguration("ekf_process_noise"),
                 "ekf_measurement_noise": LaunchConfiguration("ekf_measurement_noise"),
                 "rotation_tau": LaunchConfiguration("rotation_tau"),
@@ -244,6 +263,8 @@ def generate_launch_description():
         camera_hfov_arg,
         camera_model_arg,
         max_sh_degree_arg,
+        sync_tolerance_arg,
+        max_reproj_error_arg,
         ekf_process_noise_arg,
         ekf_measurement_noise_arg,
         rotation_tau_arg,

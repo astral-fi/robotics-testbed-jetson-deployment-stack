@@ -129,6 +129,17 @@ private:
   Eigen::Isometry3d solvePnPFallback(
     const CameraDetection & det) const;
 
+  /// RMS reprojection error, in pixels, of a candidate pose against the
+  /// corner observations that produced it. This is the only check that
+  /// measures the pose in the same units the detector works in, so it
+  /// catches bad triangulations, mis-ordered corners and ambiguity flips
+  /// that a translation-magnitude sanity check sails straight past.
+  /// Returns infinity if any corner projects behind a camera.
+  double reprojectionRmsPx(
+    const Eigen::Isometry3d & pose,
+    const std::vector<CameraDetection> & detections,
+    const std::array<Eigen::Vector3d, NUM_CORNERS> & model) const;
+
   // ── EKF ───────────────────────────────────────────────────────────────────
 
   /// Constant-velocity prediction step.
@@ -188,6 +199,15 @@ private:
   /// Orientation steps larger than this (degrees) are treated as a PnP
   /// ambiguity flip rather than real motion, and rejected.
   double rotation_max_step_deg_;
+
+  /// Detections are only fused with each other if their stamps agree to
+  /// within this many seconds. WINDOW_SEC governs how long evidence is kept;
+  /// this governs what may be treated as simultaneous. Fusing views taken at
+  /// genuinely different instants reconstructs a tag shape that never existed.
+  double sync_tolerance_;
+
+  /// Reject a fused pose whose RMS reprojection error exceeds this, in pixels.
+  double max_reproj_error_px_;
   /// Consecutive rotation rejections tolerated before accepting the jump.
   int rotation_max_rejects_;
   /// Use cv::SOLVEPNP_IPPE_SQUARE (planar-square specific, no two-fold

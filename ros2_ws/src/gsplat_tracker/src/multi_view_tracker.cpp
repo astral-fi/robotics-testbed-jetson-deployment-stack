@@ -23,6 +23,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <limits>
 #include <functional>
 #include <chrono>
 
@@ -85,6 +86,8 @@ MultiViewTracker::MultiViewTracker(const rclcpp::NodeOptions & options)
   rotation_max_step_deg_   = this->get_parameter("rotation_max_step_deg").as_double();
   rotation_max_rejects_    = this->get_parameter("rotation_max_rejects").as_int();
   use_ippe_square_         = this->get_parameter("use_ippe_square").as_bool();
+  sync_tolerance_          = this->get_parameter("sync_tolerance").as_double();
+  max_reproj_error_px_     = this->get_parameter("max_reproj_error_px").as_double();
 
   if (rotation_tau_ <= 0.0) {
     throw std::invalid_argument("rotation_tau must be > 0");
@@ -177,6 +180,13 @@ void MultiViewTracker::declareParameters()
   // not suffer the two-fold ambiguity that makes ITERATIVE flip between
   // mirrored poses on a coplanar 4-point target.
   this->declare_parameter<bool>("use_ippe_square", true);
+  // Views are fused only if their stamps agree to within this many seconds.
+  // WINDOW_SEC decides how long evidence lives; this decides what counts as
+  // simultaneous. Loosen it if cameras are badly unsynchronised and you would
+  // rather have a smeared multi-view fix than frequent single-view fallbacks.
+  this->declare_parameter<double>("sync_tolerance", 0.05);
+  // RMS reprojection error above which a fused pose is discarded, in pixels.
+  this->declare_parameter<double>("max_reproj_error_px", 8.0);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -356,6 +366,33 @@ void MultiViewTracker::windowEvaluationCallback()
       if (d.stamp > best_stamp) best_stamp = d.stamp;
     }
 
+    // ── Discard views that are not contemporaneous with the newest ─────
+    // Ageing above only guarantees each detection is within WINDOW_SEC of
+    // NOW — not that the views agree with each other. Triangulating a view
+    // from 180 ms ago against a fresh one reconstructs a quad the tag never
+    // occupied, which Kabsch then dutifully fits, yielding both position
+    // error and spurious tilt. Better a clean single-view fix than a
+    // smeared multi-view one.
+    if (detections.size() > 1) {
+      const size_t before_sync = detections.size();
+      detections.erase(
+        std::remove_if(detections.begin(), detections.end(),
+          [&](const CameraDetection & d) {
+            return (best_stamp - d.stamp).seconds() > sync_tolerance_;
+          }),
+        detections.end());
+      if (detections.size() < before_sync) {
+        static rclcpp::Clock steady_clock_sync(RCL_STEADY_TIME);
+        RCLCPP_DEBUG_THROTTLE(this->get_logger(), steady_clock_sync, 2000,
+          "Tag %d: dropped %zu of %zu views as non-contemporaneous "
+          "(sync_tolerance=%.3fs)",
+          tag_id, before_sync - detections.size(), before_sync,
+          sync_tolerance_);
+      }
+    }
+
+    if (detections.empty()) continue;
+
     // ── Skip tags with no new evidence since the last update ───────────
     // Without this the sliding window would re-feed the same measurement on
     // every tick, artificially collapsing the covariance and making the
@@ -421,6 +458,21 @@ void MultiViewTracker::windowEvaluationCallback()
       RCLCPP_DEBUG(this->get_logger(),
         "Tag %d: solvePnP fallback (cam%d)", tag_id,
         detections.front().camera_id);
+    }
+
+    // ── Reprojection check: does this pose explain the pixels? ──────────
+    // Measured in detector units, so it catches failures a metric threshold
+    // cannot: mis-ordered corners, degenerate triangulation, ambiguity flips.
+    if (valid) {
+      const double rms_px = reprojectionRmsPx(pose, detections, model_corners);
+      if (!std::isfinite(rms_px) || rms_px > max_reproj_error_px_) {
+        static rclcpp::Clock steady_clock_rp(RCL_STEADY_TIME);
+        RCLCPP_WARN_THROTTLE(this->get_logger(), steady_clock_rp, 1000,
+          "Tag %d: pose rejected, reprojection RMS %.2f px > %.2f px "
+          "(%zu view(s))", tag_id, rms_px, max_reproj_error_px_,
+          detections.size());
+        valid = false;
+      }
     }
 
     // ── Hard Sanity Check (Prevent 9e11 Explosions) ─────────────────────
@@ -824,6 +876,44 @@ bool MultiViewTracker::ekfUpdate(
 
   state.last_update_time = stamp;
   return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RMS reprojection error of a candidate pose against its own observations
+// ─────────────────────────────────────────────────────────────────────────────
+double MultiViewTracker::reprojectionRmsPx(
+  const Eigen::Isometry3d & pose,
+  const std::vector<CameraDetection> & detections,
+  const std::array<Eigen::Vector3d, NUM_CORNERS> & model) const
+{
+  double sum_sq = 0.0;
+  int n = 0;
+
+  for (const auto & d : detections) {
+    if (d.camera_id < 0 || d.camera_id >= NUM_CAMERAS) continue;
+    const Eigen::Matrix<double, 3, 4> & P = calibrations_[d.camera_id].P;
+
+    for (int c = 0; c < NUM_CORNERS; ++c) {
+      // Tag-local corner → world → homogeneous pixel
+      const Eigen::Vector3d Xw = pose * model[c];
+      Eigen::Vector4d Xh;
+      Xh << Xw.x(), Xw.y(), Xw.z(), 1.0;
+      const Eigen::Vector3d xh = P * Xh;
+
+      // Behind the camera, or on the principal plane: the pose cannot be
+      // explaining this observation at all.
+      if (xh.z() <= 1e-9) {
+        return std::numeric_limits<double>::infinity();
+      }
+
+      const Eigen::Vector2d px(xh.x() / xh.z(), xh.y() / xh.z());
+      sum_sq += (px - d.corners_px[c]).squaredNorm();
+      ++n;
+    }
+  }
+
+  if (n == 0) return std::numeric_limits<double>::infinity();
+  return std::sqrt(sum_sq / static_cast<double>(n));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
