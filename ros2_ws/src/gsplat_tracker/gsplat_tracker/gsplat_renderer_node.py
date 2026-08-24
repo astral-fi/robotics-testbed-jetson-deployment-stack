@@ -112,6 +112,13 @@ class GsplatRendererNode(Node):
         # the camera_model argument; the node checks and warns if it does not.
         self.declare_parameter("camera_model", "pinhole")
 
+        # Cap the spherical-harmonics degree used at render time. The bands
+        # above 0 encode view-dependence fitted at the TRAINING camera poses;
+        # rendering far outside that distribution makes them extrapolate, which
+        # shows up as smooth magenta/green casts drifting across flat surfaces.
+        # -1 uses every band stored in the checkpoint. 0 = flat albedo only.
+        self.declare_parameter("max_sh_degree", -1)
+
         # Explicit intrinsics override camera_hfov_deg. Leave at -1.0 to derive
         # fx/fy from the FOV and put the principal point at the image centre.
         self.declare_parameter("fx", -1.0)
@@ -319,6 +326,21 @@ class GsplatRendererNode(Node):
                 "Checkpoint must contain 'colors' or 'sh_coefficients'"
             )
 
+        # ── Resolve the SH degree actually used for rendering ────────────
+        max_sh = int(self.get_parameter("max_sh_degree").value)
+        if self.sh_degree is None:
+            self.render_sh_degree = None
+        elif max_sh < 0:
+            self.render_sh_degree = self.sh_degree
+        else:
+            self.render_sh_degree = min(max_sh, self.sh_degree)
+            if self.render_sh_degree < self.sh_degree:
+                self.get_logger().info(
+                    f"Clamping SH degree {self.sh_degree} -> "
+                    f"{self.render_sh_degree} (suppresses view-dependent "
+                    f"colour casts at novel viewpoints)"
+                )
+
         n_gaussians = self.means.shape[0]
         self.get_logger().info(f"Quaternion order: {quat_order} (gsplat needs wxyz)")
         self.get_logger().info(
@@ -465,7 +487,7 @@ class GsplatRendererNode(Node):
             "absgrad": False,
         }
         if self.sh_degree is not None:
-            rasterization_kwargs["sh_degree"] = self.sh_degree
+            rasterization_kwargs["sh_degree"] = self.render_sh_degree
         if self._pass_camera_model:
             rasterization_kwargs["camera_model"] = self.camera_model
             

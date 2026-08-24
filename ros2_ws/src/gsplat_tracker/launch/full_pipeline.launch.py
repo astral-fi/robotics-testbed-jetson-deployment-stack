@@ -85,6 +85,15 @@ def generate_launch_description():
                     "variants are roughly 77 (standard), 136 or 160 (wide).",
     )
 
+    max_sh_degree_arg = DeclareLaunchArgument(
+        "max_sh_degree",
+        default_value="-1",
+        description="Cap the SH degree used at render time. -1 uses every band "
+                    "in the checkpoint. Lower values suppress view-dependent "
+                    "magenta/green casts when rendering far from training views; "
+                    "0 is flat albedo.",
+    )
+
     camera_model_arg = DeclareLaunchArgument(
         "camera_model",
         default_value="pinhole",
@@ -183,6 +192,7 @@ def generate_launch_description():
                 "render_height": LaunchConfiguration("render_height"),
                 "camera_hfov_deg": LaunchConfiguration("camera_hfov_deg"),
                 "camera_model": LaunchConfiguration("camera_model"),
+                "max_sh_degree": LaunchConfiguration("max_sh_degree"),
                 "fx": LaunchConfiguration("fx"),
                 "fy": LaunchConfiguration("fy"),
                 "cx": LaunchConfiguration("cx"),
@@ -233,6 +243,7 @@ def generate_launch_description():
         render_height_arg,
         camera_hfov_arg,
         camera_model_arg,
+        max_sh_degree_arg,
         ekf_process_noise_arg,
         ekf_measurement_noise_arg,
         rotation_tau_arg,
