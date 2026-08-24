@@ -89,7 +89,7 @@ class GsplatRendererNode(Node):
 
         # Fixed translation applied to every /robot/fused_pose sample, e.g. the
         # rig offset from the AprilTag to the camera mount. [x, y, z] in metres.
-        self.declare_parameter("pose_offset", [0.41, -0.3, 0.4])
+        self.declare_parameter("pose_offset", [0.0, 0.0, 0.2])
 
         # Frame the offset is expressed in:
         #   "tag"   — the tag/robot body frame. Rotates with the robot, so it
