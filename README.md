@@ -1,6 +1,6 @@
 # Robotics Testbed — Jetson Deployment Stack
 
-**Demo:** https://youtu.be/RfWbA6RE8b8
+**Demo:** ▶️ https://youtu.be/RfWbA6RE8b8
 
 Localization & XR rendering layer of the **3DGS XR Testbed for Robots** project.
 
