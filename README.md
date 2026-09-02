@@ -1,6 +1,7 @@
 # Robotics Testbed — Jetson Deployment Stack
 
 Localization & XR rendering layer of the **3DGS XR Testbed for Robots** project.
+Video demo: https://youtu.be/RfWbA6RE8b8
 
 > **Note on the name:** despite the repo name, this stack is built for and runs
 > on the **Ubuntu/RTX-4090 workstation**, not on the Jetson — the `Dockerfile`
