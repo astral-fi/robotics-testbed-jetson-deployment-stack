@@ -1,5 +1,7 @@
 # Robotics Testbed — Jetson Deployment Stack
 
+**Demo:** https://youtu.be/RfWbA6RE8b8
+
 Localization & XR rendering layer of the **3DGS XR Testbed for Robots** project.
 
 > **Note on the name:** despite the repo name, this stack is built for and runs
@@ -14,12 +16,6 @@ This stack subscribes to the per-camera AprilTag detections published by the
 Jetson rig, fuses them into a single globally-consistent 6-DoF robot pose,
 renders the matching view from a pretrained 3D Gaussian Splat, and streams the
 rendered frame back over the network as a live XR video feed.
-
-## Demo
-
-[![Watch the demo](https://img.youtube.com/vi/RfWbA6RE8b8/0.jpg)](https://youtu.be/RfWbA6RE8b8)
-
-▶️ [Watch on YouTube](https://youtu.be/RfWbA6RE8b8)
 
 ## Where this fits
 
@@ -135,3 +131,56 @@ via a custom GUI, rendered from the tracked robot pose:
 ![Virtual object insertion — example B](docs/images/virtual_object_insertion_b.png)
 
 ## Directory structure
+
+```
+robotics-testbed-jetson-deployment-stack/
+├── Dockerfile                      # CUDA 12.2 + ROS 2 Humble + PyTorch + gsplat, targets RTX 4090
+├── docker-compose.yml              # gsplat_stack service (host net + IPC, GPU passthrough)
+├── data/                           # camera_calibration.yaml + model.ckpt (see above)
+├── generate_test_model.py          # synthetic checkpoint generator
+├── inspect_checkpoint.py           # checkpoint debugging tool
+├── diagnose_ros2_network.sh        # DDS connectivity check vs. the Jetson
+├── fastdds_unicast_pc.xml          # DDS profile for the workstation
+└── ros2_ws/src/
+    ├── gsplat_tracker/
+    │   ├── src/multi_view_tracker.cpp        # DLT + Kabsch + EKF fusion
+    │   ├── gsplat_tracker/gsplat_renderer_node.py  # 3DGS renderer
+    │   └── launch/full_pipeline.launch.py
+    └── isaac_ros_apriltag_interfaces/        # AprilTagDetection(Array) message definitions
+```
+
+## Requirements
+
+- Ubuntu workstation with an NVIDIA GPU (developed against an **RTX 4090**),
+  driver ≥ 535, CUDA 12.2, NVIDIA Container Toolkit
+- ROS 2 Humble
+- PyTorch 2.3.1 (cu121) + [`gsplat`](https://github.com/nerfstudio-project/gsplat)
+- Network connectivity (Zenoh bridge) to the Jetson running
+  [`multi-camera-launch-pipeline`](https://github.com/AbhayTrehan/multi-camera-launch-pipeline)
+
+## Usage
+
+```bash
+docker compose build
+docker compose up -d
+
+docker compose exec gsplat_stack bash
+ros2 launch gsplat_tracker full_pipeline.launch.py \
+    calibration_file:=/workspace/data/camera_calibration.yaml \
+    model_checkpoint:=/workspace/data/model.ckpt \
+    tag_size:=0.16 \
+    render_width:=1280 render_height:=720
+```
+
+To sanity-check the pipeline without real cameras, run
+`generate_test_model.py` to produce a test `data/model.ckpt` first.
+
+## Related repositories
+
+Part of the **3DGS XR Testbed for Robots** project, alongside:
+
+- **[`multi-camera-launch-pipeline`](https://github.com/AbhayTrehan/multi-camera-launch-pipeline)** — the Jetson-side edge perception stack
+  (FLIR camera drivers + GPU AprilTag detection) whose `tag_detections`
+  topics feed the multi-view tracker in this repo.
+- **[`milpsolutionforcameraplacement`](https://github.com/AbhayTrehan/camera-placement-milp)** — the MILP optimizer used to choose the
+  camera rig's layout in the first place.
